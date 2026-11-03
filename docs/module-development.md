@@ -4,6 +4,10 @@
 
 Start with `examples/hello/module.c`. It creates a native PAGE and ACTION and receives input through the shared event queue. `modules/demo/sdk.c` also demonstrates display binding, capability queries, pages, foreground focus and batched animation frames.
 
+The optional [ProRes quality app](../modules/prores/README.md) demonstrates a
+session-only feature using a typed native provider. Its current target is
+Z6III C2.01; it requires a core built with experimental video support.
+
 Place sources under `modules/<name>/` or `examples/<name>/`. The builder currently requires the main source, additional C files and output to reside within the source tree so it can record the complete dependency set. The tree can be copied to any working directory.
 
 ```sh

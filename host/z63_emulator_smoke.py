@@ -144,6 +144,8 @@ def main():
     parser.add_argument('--dialog-test', action='store_true')
     parser.add_argument('--reader-test', action='store_true')
     parser.add_argument('--demo-test',action='store_true',help='exercise the bundled character-rain module, native Back/blur and reopen')
+    parser.add_argument('--video-test',action='store_true',help='exercise the ProRes module choice page and deferred native publication')
+    parser.add_argument('--video-record-choice',type=int,choices=range(5),help='video test: select one quality and observe native recording admission up to the expected strict codec-model stop')
     parser.add_argument('--expect', choices=('success', 'fault', 'rejected', 'sdk', 'services', 'runtime', 'ui', 'timeout', 'files', 'mapping', 'global'), default='success')
     args = parser.parse_args()
     if args.panic_test and (not args.native_menu_test or args.expect!='fault'):
@@ -173,6 +175,10 @@ def main():
         parser.error('native UI tests require --native-menu-test')
     receipt = json.loads(args.receipt.read_text())
     application = args.application.resolve(strict=True)
+    if args.video_test and (not args.ui_test or not args.native_menu_test or not receipt.get('video')):
+        parser.error('--video-test requires a video core and native UI/menu test')
+    if args.video_record_choice is not None and (not args.video_test or args.startup_test or args.shutdown_test):
+        parser.error('--video-record-choice requires --video-test and excludes startup/shutdown controls')
     if hashlib.sha256(application.read_bytes()).hexdigest() != receipt['candidate_sha256']:
         raise ValueError('candidate differs from the build receipt')
     out = args.output_dir.resolve()
@@ -183,6 +189,7 @@ def main():
     clone(args.card.resolve(strict=True), out / 'card.img')
     symbols = receipt['symbols']
     observed = ['fx_z63_sysctl_before', 'fx_z63_sysctl_after', 'fx_z63_probe_module_result']
+    if args.video_test:observed+=['fx_z63_video_movie','fx_z63_video_capture','fx_z63_video_code']
     if args.ptp_client:
         observed += ['fx_native_ptp_lookup','fx_ptp_hello','fx_ptp_submit','fx_ptp_fetch','execute']
     if args.reader_test:
@@ -202,6 +209,10 @@ def main():
             'mcu-image=' + str(args.mcu.resolve(strict=True)), 'z9-capture=on', 'cfexpress=on',
             'z9-capture-raw=' + str(args.raw.resolve(strict=True)), 'sio-sink=9:8:7',
             'imu-mg=1000:0:0', 'scanout-dump=' + str(out / 'frame.ppm')])
+        if args.video_record_choice is not None:
+            # Movie overlays contain separately unmodeled GFX commands. Keep
+            # CODEC strict; this control qualifies request data, not drawing.
+            machine+=',gfx-skip-unmodelled=on'
         if args.ptp_client:
             if not receipt.get('ptp') or not args.native_menu_test:
                 raise ValueError('PTP test requires a PTP candidate and native menu test')
@@ -358,6 +369,7 @@ def main():
                 startup_result = None
                 panic_result = None
                 demo_result = None
+                video_result = None
                 menu_completed = False
                 menu_exit_presses = 0
                 scanout_matches = None
@@ -382,7 +394,7 @@ def main():
                         raise RuntimeError('native Fenestra page not reached')
                     qmp('screendump', {'filename': str(out / 'fenestra.ppm')})
                     if args.startup_test:
-                        if not receipt.get('runtime') or args.ptp_client or not args.native_menu_test or (args.expect!='runtime' and not args.demo_test):
+                        if not receipt.get('runtime') or args.ptp_client or not args.native_menu_test or (args.expect!='runtime' and not args.demo_test and not args.video_test):
                             raise ValueError('startup control requires the normal discovered runtime test')
                         image=application.read_bytes();base=0x40160000
                         boot_layout=struct.unpack_from('<7I',image,symbols['fx_z63_startup_layout']-base)
@@ -494,6 +506,33 @@ def main():
                         keypress('ok');time.sleep(2)
                         if view()>>16!=0x7100:raise RuntimeError('Module root page not reached')
                         qmp('screendump',{'filename':str(out/'application.ppm')})
+                        if args.video_test:
+                            image=application.read_bytes();base=0x40160000
+                            meta=struct.unpack_from('<9I',image,symbols['fx_z63_video_layout']-base)
+                            def video_state():
+                                policy=read64(0xa02912e10+80)+meta[2]+meta[3]
+                                def u32(at):return (read64((policy+at)&~7)>>(((policy+at)&7)*8))&0xffffffff
+                                return dict(effective=u32(meta[4]),requested=u32(meta[5]),registered=u32(meta[6]),
+                                    movie=u32(meta[7]),capture=u32(meta[7]+4),fault=u32(meta[8]))
+                            initial=video_state()
+                            if initial['effective'] or initial['requested'] or initial['fault']:
+                                raise RuntimeError('Video module did not begin at Stock')
+                            selections=[];cursor=0
+                            choices=((1,2,3,4,0,4) if args.shutdown_test else (1,2,3,4,0)) if args.video_record_choice is None else (args.video_record_choice,)
+                            for selected in choices:
+                                keypress('ok')
+                                for _ in range(abs(selected-cursor)):keypress('down' if selected>cursor else 'up')
+                                keypress('ok');time.sleep(1)
+                                deadline=time.monotonic()+8
+                                while time.monotonic()<deadline:
+                                    state=video_state()
+                                    if state['requested']==selected and state['effective']==selected and not state['fault']:break
+                                    time.sleep(.1)
+                                else:raise RuntimeError('Video quality not published: '+repr(state))
+                                cursor=selected;selections.append(state)
+                                qmp('screendump',{'filename':str(out/('video-choice-'+str(selected)+'.ppm'))})
+                            video_result=dict(initial=initial,selections=selections,stock_restored=0 in choices,passed=True)
+                            (out/'video-quality.json').write_text(json.dumps(video_result,indent=2)+'\n')
                         if args.demo_test:
                             image=application.read_bytes();base=0x40160000
                             menu_offset=struct.unpack_from('<I',image,symbols['fx_z63_menu_runtime_offset']-base)[0]
@@ -545,7 +584,7 @@ def main():
                             if not native_ui_task or queued_call_task!=native_ui_task:raise RuntimeError('Copied call did not run on captured original UI task')
                             task_result=dict(original_ui_task=hex(native_ui_task),queued_call_task=hex(queued_call_task),passed=True)
 
-                        if not args.demo_test:keypress('ok');time.sleep(2)
+                        if not args.demo_test and not args.video_test:keypress('ok');time.sleep(2)
                         if args.dialog_test:
                             if view()>>16!=0x7111:raise RuntimeError('Native modal dialog not reached')
                             qmp('screendump',{'filename':str(out/'dialog.ppm')})
@@ -621,6 +660,32 @@ def main():
                     if (scanout_matches < .90 and args.expect!='global' and not args.panic_test) or menu_matches >= .50:
                         raise RuntimeError('live-view scanout control did not distinguish menu/return')
                     menu_completed = True
+                    if args.video_record_choice is not None:
+                        # This seed starts at H.265 8-bit, fifth file-type
+                        # option; ProRes 422 HQ is the third. Configure through
+                        # native buttons/touch, without guest memory writes.
+                        keypress('menu');keypress('left');keypress('left')
+                        for _ in range(3):keypress('up')
+                        keypress('right');view()
+                        qmp('screendump',{'filename':str(out/'video-menu.ppm')})
+                        for _ in range(4):keypress('down')
+                        keypress('right');view()
+                        qmp('screendump',{'filename':str(out/'video-file-type-options.ppm')})
+                        keypress('up');keypress('up');keypress('ok');view()
+                        qmp('screendump',{'filename':str(out/'video-file-type-selected.ppm')})
+                        keypress('half');keypress('lever=video');time.sleep(10)
+                        if not qmp('query-status').get('running'):raise RuntimeError('Movie preparation stopped before record input')
+                        keypress('movie');time.sleep(8)
+                        status=qmp('query-status')
+                        request=(read64(0xa03324df0)>>32)&0xffffffff
+                        expected=max(0,args.video_record_choice-1)
+                        stopped='addr=0x01600001c size=4 value=0x7cf10 pc=0x040c6a0ec' in (out/'qemu.log').read_text()
+                        native=dict(choice=args.video_record_choice,encoder_type=request,expected_type=expected,
+                            strict_codec_stop=stopped,status=status,model_overrides=['gfx-skip-unmodelled=on'],
+                            recording_completed=False,physical_camera_tested=False)
+                        video_result['native_request']=native
+                        video_result['passed']=video_result['passed'] and stopped and request==expected and not status.get('running')
+                        (out/'video-quality.json').write_text(json.dumps(video_result,indent=2)+'\n')
                     if args.expect=='global':
                         deadline=time.monotonic()+120
                         while time.monotonic()<deadline:
@@ -850,6 +915,12 @@ def main():
                         qmp('qom-set',{'path':'/machine','property':'mcu-keys','value':'power=off'})
                         startup_result['stopped']=boot_wait(lambda s:s['phase']==7 and s['shutdown_done']==1 and not s['error'])
                         startup_result['power_switch_tested']=True
+                        if args.video_test:
+                            retired=video_state();video_result['shutdown_state']=retired
+                            if retired['effective'] or retired['requested'] or retired['fault']:
+                                raise RuntimeError('Video resource retirement did not restore Stock: '+repr(retired))
+                            video_result['shutdown_restored_stock']=True
+                            (out/'video-quality.json').write_text(json.dumps(video_result,indent=2)+'\n')
                     startup_result['passed']=True
                 elif args.shutdown_test:raise ValueError('--shutdown-test requires --startup-test')
                 qmp('screendump', {'filename': str(out / 'final.ppm')})
@@ -879,7 +950,10 @@ def main():
         passed = observed_stages == required and not any(stage == 40 for stage, _, _ in stages)
     elif args.expect == 'ui':
         requests=[(result,detail) for stage,result,detail in stages if stage==51]
-        if args.demo_test:
+        if args.video_test:
+            passed=((60,0,1) in stages and (61,0,0) in stages and video_result['passed'] and
+                not any(stage in (40,52) for stage,_,_ in stages))
+        elif args.demo_test:
             passed=((60,0,1) in stages and (61,0,0) in stages and demo_result is not None and
                 len(requests)>=10 and all(r in (0,2,4,12) for r,_ in requests) and
                 not any(stage in (40,52) for stage,_,_ in stages))
@@ -934,7 +1008,7 @@ def main():
     if receipt.get('drawing'):
         frames = [result for stage,result,_ in stages if stage == 81]
         passed = passed and len(frames) == 3 and frames == [0,0,0] and (82,0,3) in stages
-    passed = passed and status.get('running') is True
+    passed = passed and (status.get('running') is False if args.video_record_choice is not None else status.get('running') is True)
     if args.native_menu_test:
         passed = passed and menu_completed
     if receipt.get('menu'):
@@ -945,7 +1019,7 @@ def main():
             passed = passed and len(starts) == 1 and starts[0][0] == 0 and starts[0][1] > 0
     if args.tasks_test:
         passed=passed and task_result is not None and any(stage==54 and result==0 and detail==int(task_result['original_ui_task'],16) for stage,result,detail in stages)
-    result = dict(demo=demo_result,panic=panic_result,startup=startup_result,manager=manager_result,reader=reader_result,tasks=task_result,passed=passed, target='z63-c201', expected=args.expect, status=status,
+    result = dict(video=video_result,demo=demo_result,panic=panic_result,startup=startup_result,manager=manager_result,reader=reader_result,tasks=task_result,passed=passed, target='z63-c201', expected=args.expect, status=status,
         stages=stages, seconds=time.monotonic() - start, candidate_sha256=receipt['candidate_sha256'],
         qemu_sha256=hashlib.sha256(args.qemu.read_bytes()).hexdigest(),
         plugin_sha256=hashlib.sha256(args.plugin.read_bytes()).hexdigest(),

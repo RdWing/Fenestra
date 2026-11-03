@@ -82,6 +82,9 @@ def verify_application(original, candidate, receipt, profile):
         allowed.update({row['address']: prefix + name for name, row in profile.get(group, {}).items()})
     calls={row['address']:row['symbol'] for row in profile.get('ui_calls',[])}
     allowed.update(calls)
+    if receipt.get('video'):
+        allowed.update({r['address']:r['symbol'] for r in profile['video_quality']['hooks']})
+        calls.update({r['address']:r['symbol'] for r in profile['video_quality']['hooks'] if r.get('link')})
     restored = bytearray(candidate)
     restored[begin:end] = original[begin:end]
     for address, symbol in receipt['hooks'].items():

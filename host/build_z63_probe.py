@@ -7,7 +7,7 @@ import subprocess
 from build_z63_adapter import ROOT, load_application
 
 
-def build(application, output, linker, llvm_bin, module=None, menu=False, discovery=False, sdk=False, ptp=False, runtime=False, drawing=False, ui=False):
+def build(application, output, linker, llvm_bin, module=None, menu=False, discovery=False, sdk=False, ptp=False, runtime=False, drawing=False, ui=False, video=False):
     profile, original = load_application(application)
     base = profile['image_base']
     hook = profile['sysctl']
@@ -45,6 +45,13 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
              '-Wall', '-Wextra', '-Werror', '-I', str(out)]
     flags += ['-DFX_FREESTANDING=1', '-ffunction-sections', '-fdata-sections', '-I', str(ROOT / 'include')]
     sources = ['src/platform/z63_c201/sysctl_probe.c', 'src/platform/z63_c201/sysctl_trampoline.S']
+    video_returns={}
+    if video:
+        if not runtime or not ui:raise ValueError('video quality requires discovered SDK workers and native UI')
+        from z63_video import generate as generate_video
+        video_returns=generate_video(profile,original,out)
+        flags+=['-DFX_Z63_VIDEO=1','-mno-outline-atomics','-I',str(ROOT/'src/platform/z63_c201')]
+        sources+=['src/video_quality.c','src/platform/z63_c201/video_quality.c','src/platform/z63_c201/video_hooks.S']
     if ui:
         if not runtime:raise ValueError('native UI requires the discovered worker runtime')
         flags+=['-DFX_Z63_UI=1','-DFX_NATIVE_UI_INPUT=1','-DFX_NATIVE_SCENE=1','-DFX_NATIVE_TASKS=1']
@@ -142,6 +149,8 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
         hooks.update({binding['address']: 'fx_z63_ptp_' + name for name,binding in profile['ptp_hooks'].items()})
     if ui:
         hooks.update({row['address']:row['symbol'] for row in profile['ui_calls']})
+    if video:
+        hooks.update({row['address']:row['symbol'] for row in profile['video_quality']['hooks']})
     from compiler_dependencies import dependencies, identity_configuration, finalize_identity
     objects=[];graph={};compilations={}
     for index,name in enumerate(sources):
@@ -153,6 +162,7 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
     identity_inputs=[*sources,'host/build_z63_probe.py','host/build_z63_adapter.py','host/z63_bindings.py',
                      'host/compiler_dependencies.py','host/verify_z63_build.py','host/z63_package.py',
                      'fenestra.py','targets/z63-c201.json','emulation/z63_probe.ld']
+    if video:identity_inputs+=['host/z63_video.py']
     header=(out/'z63_debug_identity.h').relative_to(ROOT).as_posix()
     configuration={}
     def emit(inputs):
@@ -171,7 +181,9 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
         lambda name:subprocess.run(compilations[name],check=True,cwd=ROOT))
     (out/'identity.json').write_text(json.dumps(configuration,indent=2)+'\n')
     elf = out / 'probe.elf'
-    subprocess.run([str(linker), '-m', 'aarch64elf', '--gc-sections', *['--undefined=' + name for name in [*hooks.values(),*(['fx_z63_startup_layout','fx_z63_worker_layout'] if runtime else []),*(['fx_z63_panic_layout','fx_z63_menu_ui_offset','fx_z63_menu_runtime_offset','fx_z63_runtime_layout','fx_z63_scene_layout','fx_native_scene_metadata','fx_z63_ui_layout','fx_z63_manager_layout','fx_native_modules_metadata','fx_native_ui_editor_metadata','fx_native_ui_reader_metadata'] if ui else [])]], '-T', str(ROOT / 'emulation/z63_probe.ld'), *objects, '-o', str(elf)], check=True)
+    subprocess.run([str(linker), '-m', 'aarch64elf', '--gc-sections',
+                    *['--defsym='+n+'='+hex(a) for n,a in video_returns.items()],
+                    *['--undefined=' + name for name in [*hooks.values(),*(['fx_z63_video_layout'] if video else []),*(['fx_z63_startup_layout','fx_z63_worker_layout'] if runtime else []),*(['fx_z63_panic_layout','fx_z63_menu_ui_offset','fx_z63_menu_runtime_offset','fx_z63_runtime_layout','fx_z63_scene_layout','fx_native_scene_metadata','fx_z63_ui_layout','fx_z63_manager_layout','fx_native_modules_metadata','fx_native_ui_editor_metadata','fx_native_ui_reader_metadata'] if ui else [])]], '-T', str(ROOT / 'emulation/z63_probe.ld'), *objects, '-o', str(elf)], check=True)
     binary = out / 'probe.bin'
     subprocess.run([str(Path(llvm_bin) / 'llvm-objcopy'), '-O', 'binary', str(elf), str(binary)], check=True)
     symbols = {}
@@ -188,11 +200,13 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
         raise ValueError('hook branch out of range')
     candidate = bytearray(original)
     candidate[begin-base:begin-base+len(code)] = code
+    linked_calls={r['address'] for r in profile['ui_calls']} if ui else set()
+    if video:linked_calls.update(r['address'] for r in profile['video_quality']['hooks'] if r.get('link'))
     for address, symbol in hooks.items():
         delta = symbols[symbol] - address
         if delta % 4 or not -(1 << 27) <= delta < (1 << 27):
             raise ValueError('hook branch out of range')
-        candidate[address-base:address-base+4] = struct.pack('<I', (0x94000000 if ui and any(row['address']==address for row in profile['ui_calls']) else 0x14000000) | ((delta // 4) & 0x3ffffff))
+        candidate[address-base:address-base+4] = struct.pack('<I', (0x94000000 if address in linked_calls else 0x14000000) | ((delta // 4) & 0x3ffffff))
     # The emulator consumes the EG directly. No member CRC or update package
     # is emitted; retained CRC bytes remain original and must not be mistaken
     # for a package-integrity result.
@@ -208,7 +222,7 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
     receipt = dict(target='z63-c201', artifact='emulator-sysctl-probe', native_ui=ui,
                    application_sha256=profile['application_sha256'],
                    candidate_sha256=hashlib.sha256(candidate).hexdigest(),
-                   symbols=symbols, hook=hook, hooks={hex(a): n for a,n in hooks.items()}, menu=menu, discovery=discovery, sdk=sdk, ptp=ptp, runtime=runtime, drawing=drawing, original_reconstruction=True,
+                   symbols=symbols, hook=hook, hooks={hex(a): n for a,n in hooks.items()}, menu=menu, discovery=discovery, sdk=sdk, ptp=ptp, runtime=runtime, drawing=drawing, video=video, original_reconstruction=True,
                    firmware_package=False, runtime_qualified=False, do_not_flash=True,
                    compiler=subprocess.check_output([cc, '--version'], text=True).splitlines()[0],
                    linker=subprocess.check_output([str(linker), '--version'], text=True).splitlines()[0],

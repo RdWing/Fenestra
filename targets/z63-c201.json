@@ -1517,5 +1517,210 @@
       "address": 43000396160,
       "bytes": 8
     }
-  ]
+  ],
+  "video_quality": {
+    "status": "experimental; software requests only; DO_NOT_FLASH",
+    "hooks": [
+      {
+        "name": "type",
+        "address": 1087515172,
+        "bytes": 12,
+        "sha256": "616ec18a58b11339aa2b545cde62e90cfbb75ea4c3014e238e4f4bf141a77813",
+        "symbol": "fx_z63_video_type_hook"
+      },
+      {
+        "name": "rate",
+        "address": 1087513524,
+        "bytes": 16,
+        "sha256": "8d7fbffdb157a4452be64a995dc727608e54d606fc590d93fd9c1b46c61fbdbb",
+        "symbol": "fx_z63_video_rate"
+      },
+      {
+        "name": "template",
+        "address": 1087307040,
+        "bytes": 20,
+        "sha256": "f9fe8d4cb71819ab6b127b6fb6f8c63b7106da480b4e41432d7d2e841b3ab42a",
+        "symbol": "fx_z63_video_template_hook"
+      },
+      {
+        "name": "shoot",
+        "address": 1079089696,
+        "bytes": 28,
+        "sha256": "a27c9cc17325f9697d72dafb9b9816527f05ef5b1750cfae99b375bfed43322f",
+        "symbol": "fx_z63_video_shoot_hook"
+      },
+      {
+        "name": "play",
+        "address": 1080542416,
+        "bytes": 132,
+        "sha256": "637c9c39a37b897682a41097512e17dbddc6e80107ca54cd7db4e675838c87d3",
+        "symbol": "fx_z63_video_play_hook"
+      },
+      {
+        "name": "parser",
+        "address": 1087288112,
+        "bytes": 16,
+        "sha256": "1f0ccdc7248a08110e4475384ba9a03fd2fe8cf1929069b47e4b2279e9a2ab45",
+        "symbol": "fx_z63_video_parser_hook"
+      },
+      {
+        "name": "movie",
+        "address": 1087514480,
+        "bytes": 16,
+        "sha256": "713036a591c20d34d462dcc65381d21d196468e7bbadb661a30e41a4ec62dd8e",
+        "symbol": "fx_z63_video_movie"
+      },
+      {
+        "name": "capture",
+        "address": 1081432660,
+        "bytes": 16,
+        "sha256": "4ad1198344fd8b5e0b1b60b2d92aac6f25d9935d4a57d9bdc58cb10bea6904b9",
+        "symbol": "fx_z63_video_capture"
+      },
+      {
+        "name": "drain",
+        "address": 1088949364,
+        "bytes": 16,
+        "sha256": "583426688ceca2303de815472e3ab30b7259a31edefcb8b6c240060c250238e2",
+        "symbol": "fx_z63_video_drain"
+      },
+      {
+        "name": "cancel",
+        "address": 1088950220,
+        "bytes": 16,
+        "sha256": "f5ca974f3277b01a4f2c8bf6bf1d1039fdb1d307a08a78432b4b687b8f4a9d64",
+        "symbol": "fx_z63_video_cancel"
+      },
+      {
+        "name": "configure",
+        "address": 1088945416,
+        "bytes": 16,
+        "sha256": "583426688ceca2303de815472e3ab30b7259a31edefcb8b6c240060c250238e2",
+        "symbol": "fx_z63_video_configure"
+      },
+      {
+        "name": "register_capture",
+        "address": 1081432644,
+        "bytes": 4,
+        "sha256": "e1bc7f2ea73eea651deed4206c20f77d4d3ca06ad79928ed36e8c2076e8d2477",
+        "symbol": "fx_z63_video_register_capture",
+        "link": true
+      },
+      {
+        "name": "register_movie",
+        "address": 1087514240,
+        "bytes": 4,
+        "sha256": "27121cf1926c8f4d6123066fedb7df1be2f9e0d15886b5f9bd16da6393180d4a",
+        "symbol": "fx_z63_video_register_movie",
+        "link": true
+      }
+    ],
+    "dependencies": [
+      {
+        "name": "rates",
+        "address": 1119299624,
+        "bytes": 288,
+        "sha256": "c8d7af68d0eeb3196ecf3a453850442d0522940078923ebd8361189b24a11c61"
+      },
+      {
+        "name": "template_asset",
+        "address": 1119294554,
+        "bytes": 86,
+        "sha256": "63587afc346327ace4f5fb18354a8e4384b3f8d607c1363f3aea629b201a2490"
+      },
+      {
+        "name": "shoot_table",
+        "address": 1141416032,
+        "bytes": 112,
+        "sha256": "caa3e831e9ddd51afd607a777e9d46bc85d4b7933a2a4eeca5ecd38d0dca42b4"
+      },
+      {
+        "name": "mutex_init",
+        "address": 1087581796,
+        "bytes": 16,
+        "sha256": "802eaa72cddbe5ceb7c49948b707f5b32d0517c25cfe7bdbeb9799d481ccbbe6"
+      },
+      {
+        "name": "mutex_lock",
+        "address": 1087582068,
+        "bytes": 16,
+        "sha256": "becab248e87d73f14cbd0abba3be08c81d1450def39ef3dc119592365fa5f713"
+      },
+      {
+        "name": "mutex_unlock",
+        "address": 1087582048,
+        "bytes": 16,
+        "sha256": "869dae76b9ecd2a863f14a103edea6fbc8faa5cdb6048abd272a51181debcaa3"
+      },
+      {
+        "name": "mutex_timed",
+        "address": 1087582104,
+        "bytes": 16,
+        "sha256": "04966470ba1354e1cb4d279d6444a5be37b8aa1be0632aac0cd2edf3b6cb753e"
+      },
+      {
+        "name": "rate_index",
+        "address": 1087513600,
+        "bytes": 116,
+        "sha256": "e8a9e467641a40f2cce3de3fb5534241eb1a543e6a635a5f0c4b30f003adeb91"
+      },
+      {
+        "name": "dispatch_registration",
+        "address": 1086325252,
+        "bytes": 88,
+        "sha256": "f895b58ad408edb26ad8b989ebe9d0701c9acdcb764899ff10c465a2b5972f39"
+      },
+      {
+        "name": "capture_registration_call",
+        "address": 1081432588,
+        "bytes": 72,
+        "sha256": "0a5ccca639c9243656113ca91a5e0d9ada4b510c8ee62755b489e97c3eff1c21"
+      },
+      {
+        "name": "movie_registration_call",
+        "address": 1087514188,
+        "bytes": 56,
+        "sha256": "883524222f27200b006c4ef4bc2a0a9fc8e2ace212b87ed541f018b5450cbf6d"
+      }
+    ],
+    "original_entries": [
+      {
+        "name": "rate",
+        "address": 1087513524
+      },
+      {
+        "name": "movie",
+        "address": 1087514480
+      },
+      {
+        "name": "capture",
+        "address": 1081432660
+      },
+      {
+        "name": "drain",
+        "address": 1088949364
+      },
+      {
+        "name": "cancel",
+        "address": 1088950220
+      },
+      {
+        "name": "configure",
+        "address": 1088945416
+      },
+      {
+        "name": "play_stock",
+        "address": 1080542416,
+        "bytes": 132
+      }
+    ],
+    "returns": {
+      "fx_z63_video_type_return": 1087515184,
+      "fx_z63_video_template_return": 1087307060,
+      "fx_z63_video_shoot_return": 1079089724,
+      "fx_z63_video_play_return": 1080542548,
+      "fx_z63_video_parse_accept": 1087288128,
+      "fx_z63_video_parse_reject": 1087288352
+    }
+  }
 }

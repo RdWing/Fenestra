@@ -37,6 +37,23 @@ class Z63PackageTests(unittest.TestCase):
     def test_exact_declared_reconstruction(self):
         self.check()
 
+    def video_registration_call(self):
+        self.profile['video_quality']={'hooks':[dict(address=0x4044,symbol='video_register',link=True)]}
+        self.receipt.update(video=True)
+        self.receipt['hooks']['0x4044']='video_register'
+        self.receipt['symbols']['video_register']=0x4084
+        struct.pack_into('<I',self.candidate,68,0x94000010)
+
+    def test_video_registration_preserves_link_semantics(self):
+        self.video_registration_call()
+        self.check()
+
+    def test_video_registration_rejects_nonlinking_branch(self):
+        self.video_registration_call()
+        struct.pack_into('<I',self.candidate,68,0x14000010)
+        with self.assertRaisesRegex(ValueError,'resident symbol'):
+            self.check()
+
     def test_rejects_undeclared_boot_change(self):
         self.candidate[0] ^= 1
         with self.assertRaisesRegex(ValueError, 'undeclared application'):

@@ -17,6 +17,7 @@ def main():
     build.add_argument('--llvm-bin', type=Path, help='Z6III: directory containing clang, llvm-nm and llvm-objcopy')
     build.add_argument('--linker', type=Path, help='Z6III: ELF ld.lld executable')
     build.add_argument('--experimental-ptp', action='store_true', help='Z6III: include the unqualified native USB debugging experiment')
+    build.add_argument('--experimental-video', action='store_true', help='Z6III: include the session-only experimental video quality provider')
     make.add_argument('--key', type=Path, required=True, help='private local body key/mask file; never printed')
     make.add_argument('--digest-suffix', type=Path, help='ZR only: private 8-byte digest suffix file')
     make.add_argument('--envelope-key', type=Path, help='ZR r3: user RSA public/private PEM for exact envelope reproduction')
@@ -35,6 +36,7 @@ def main():
     probe.add_argument('--drawing', action='store_true', help='exercise the C2.01 native renderer after the module test')
     probe.add_argument('--runtime', action='store_true', help='run discovered modules using the C2.01 worker runtime')
     probe.add_argument('--ptp', action='store_true', help='enable the C2.01 native PTP debugging experiment')
+    probe.add_argument('--video', action='store_true', help='enable the experimental video quality provider')
     probe.add_argument('--sdk', action='store_true', help='enable shared SDK service dispatch experiment')
     probe.add_argument('--discovery', action='store_true', help='exercise native card module discovery before the pinned test')
     probe.add_argument('--menu', action='store_true', help='install the experimental manual test menu')
@@ -54,12 +56,12 @@ def main():
         from verify_z63_build import verify
         result = build_z63(args.firmware, args.output, args.linker, args.llvm_bin,
                            menu=True, sdk=True, ptp=args.experimental_ptp,
-                           runtime=True, ui=True)
+                           runtime=True, ui=True, **({'video':True} if args.experimental_video else {}))
         checked = verify(args.firmware, args.output, args.llvm_bin)
         (args.output / 'verified.json').write_text(json.dumps(checked, indent=2)+'\n')
         print(json.dumps(dict(build=result, verification=checked), indent=2))
         return
-    if args.command == 'build' and (args.llvm_bin or args.linker or args.experimental_ptp):
+    if args.command == 'build' and (args.llvm_bin or args.linker or args.experimental_ptp or args.experimental_video):
         p.error('the explicit toolchain and experimental PTP options apply only to z63-c201')
     if args.command == 'package-z63':
         from z63_package import build as package_z63
@@ -68,7 +70,7 @@ def main():
         return
     if args.command == 'build-z63-probe':
         from build_z63_probe import build as build_probe
-        print(json.dumps(build_probe(args.application, args.output_dir, args.linker, args.llvm_bin, args.module, args.menu, args.discovery, args.sdk, args.ptp, args.runtime, args.drawing, args.ui), indent=2))
+        print(json.dumps(build_probe(args.application, args.output_dir, args.linker, args.llvm_bin, args.module, args.menu, args.discovery, args.sdk, args.ptp, args.runtime, args.drawing, args.ui, args.video), indent=2))
         return
     if args.command == 'build-z63-adapter':
         from build_z63_adapter import build as build_adapter

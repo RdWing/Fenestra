@@ -23,15 +23,21 @@
 #define TEXT 3285u
 #define PAGE 0x7000u
 #define MAGIC 0x465a634du
+#ifdef FX_Z63_VIDEO
+#include "video_quality.h"
+#endif
 typedef struct {
     FxNativeDescriptor descriptor;
-    uint32_t magic,installed;
+    uint32_t magic;_Atomic uint32_t installed;
     FxZ63Lifecycle lifecycle;
     _Atomic uint32_t activated;
     FxNativeRow rows[51];uintptr_t events[51];
     FxNativeEvent entry[18],navigation[18];
     FxNativeMenu menu;
     FxNativeTextBank *bank;
+#ifdef FX_Z63_VIDEO
+    FxZ63VideoQuality video;
+#endif
 #ifdef FX_Z63_UI
     FxZ63Ui *ui;
 #endif
@@ -52,11 +58,19 @@ const uint32_t fx_z63_menu_ui_offset=offsetof(State,ui);
 const uint32_t fx_z63_menu_runtime_offset=offsetof(State,runtime);
 #endif
 static FxNativePage *setup(void){return (FxNativePage *)(uintptr_t)UINT64_C(0xa02912e10);}
-static State *state(void) {
-    uintptr_t p=setup()->descriptor;
+static State *prepared_state(void) {
+    uintptr_t p=atomic_load_explicit((_Atomic uintptr_t *)&setup()->descriptor,memory_order_acquire);
     if(p==UINT64_C(0xa028d5590) || (p&7u) || p<UINT64_C(0xa00000000) || p>UINT64_C(0xa40000000)-sizeof(State))return 0;
-    State *s=(State *)p;return s->magic==MAGIC && s->installed?s:0;
+    State *s=(State *)p;return s->magic==MAGIC?s:0;
 }
+static State *state(void){State *s=prepared_state();return s && atomic_load_explicit(&s->installed,memory_order_acquire)?s:0;}
+#ifdef FX_Z63_VIDEO
+FxZ63VideoQuality *fx_z63_menu_video(void){State *s=prepared_state();return s?&s->video:0;}
+const uint32_t fx_z63_video_layout[]={0x46585651u,1u,offsetof(State,video),
+    offsetof(FxZ63VideoQuality,policy),offsetof(FxVideoQualityPolicy,effective),
+    offsetof(FxVideoQualityPolicy,requested),offsetof(FxVideoQualityPolicy,registered),
+    offsetof(FxVideoQualityPolicy,active),offsetof(FxVideoQualityPolicy,fault)};
+#endif
 static uint32_t noop(void *context){(void)context;return 1u;}
 extern void fx_z63_probe_module_start(void);
 #ifdef FX_Z63_RUNTIME
@@ -197,15 +211,37 @@ FxResult fx_z63_menu_text_ensure(uint32_t n) {
     __asm__ volatile("dmb ish":::"memory");s->bank=bank;return FX_OK;
 }
 #endif
-void fx_z63_menu_install(void) {
-    if(state())return;
+static State *prepare(void) {
+    State *existing=prepared_state();if(existing)return existing;
     FxNativePage *page=setup();const FxNativeDescriptor *d=(const FxNativeDescriptor *)page->descriptor;
     if((page->identity>>16)!=690u || page->descriptor!=UINT64_C(0xa028d5590) ||
-       d->count!=50u || d->header!=UINT64_C(0x43e2a5e0) || d->rows!=UINT64_C(0x43e2a6f0) || d->events!=UINT64_C(0x43e2af88))return;
+       d->count!=50u || d->header!=UINT64_C(0x43e2a5e0) || d->rows!=UINT64_C(0x43e2a6f0) || d->events!=UINT64_C(0x43e2af88))return 0;
     const FxNativeRow *rows=(const FxNativeRow *)d->rows;
-    if(rows[47].word[0]!=912u)return;
-    State *s=allocate(0,(uint32_t)sizeof(*s));if(!s)return;
+    if(rows[47].word[0]!=912u)return 0;
+    State *s=allocate(0,(uint32_t)sizeof(*s));if(!s)return 0;
     memset(s,0,sizeof(*s));s->descriptor=*d;
+#ifdef FX_Z63_VIDEO
+    fx_z63_video_init(&s->video);
+#endif
+    /* The native descriptor stays byte-for-byte Stock until installation.
+     * Publish this retained context before the first dispatcher registration,
+     * so no registered native job can predate its admission counters. The
+     * observed C2.01 startup invokes both constructors serially; CAS also
+     * refuses a competing descriptor.
+     * A losing allocation is retained because its native mutex is registered. */
+    s->magic=MAGIC;uintptr_t expected=UINT64_C(0xa028d5590);
+    if(!atomic_compare_exchange_strong_explicit((_Atomic uintptr_t *)&page->descriptor,&expected,
+        (uintptr_t)s,memory_order_release,memory_order_acquire))return prepared_state();
+    return s;
+}
+#ifdef FX_Z63_VIDEO
+FxZ63VideoQuality *fx_z63_menu_prepare_video(void){State *s=prepare();return s?&s->video:0;}
+#endif
+void fx_z63_menu_install(void) {
+    if(state())return;
+    State *s=prepare();if(!s)return;
+    FxNativePage *page=setup();const FxNativeRow *rows=(const FxNativeRow *)s->descriptor.rows;
+    const FxNativeDescriptor *d=&s->descriptor;
 #ifdef FX_Z63_RUNTIME
     fx_z63_startup_init(&s->startup);s->startup.context=s;
     s->startup.activate=start_modules;s->startup.runtime_state=runtime_state;
@@ -252,9 +288,10 @@ void fx_z63_menu_install(void) {
     FxNativeMenuProfile apps_profile=profile;apps_profile.page=&s->menu.page;apps_profile.back=PAGE;
     s->ui=fx_z63_ui_create(&apps_profile);if(!s->ui)return;
 #endif
-    s->magic=MAGIC;s->installed=1u;fx_z63_lifecycle_record(&s->lifecycle,20u);
+    fx_z63_lifecycle_record(&s->lifecycle,20u);
     *(volatile uintptr_t *)(uintptr_t)UINT64_C(0xa0305f980)=(uintptr_t)s->bank->fonts;
     *(volatile uintptr_t *)(uintptr_t)UINT64_C(0xa0305f990)=(uintptr_t)s->bank->attributes;
+    atomic_store_explicit(&s->installed,1u,memory_order_release);
     atomic_store_explicit((_Atomic uintptr_t *)&page->descriptor,(uintptr_t)s,memory_order_release);
 }
 #ifdef FX_Z63_RUNTIME

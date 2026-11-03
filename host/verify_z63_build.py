@@ -37,6 +37,18 @@ def verify(application, build, llvm_bin):
             expected.update({r['address']: prefix+n for n,r in profile[group].items()})
     if report.get('native_ui'):
         expected.update({r['address']: r['symbol'] for r in profile['ui_calls']})
+    if report.get('video'):
+        expected.update({r['address']:r['symbol'] for r in profile['video_quality']['hooks']})
+        for r in profile['video_quality']['original_entries']:
+            name='fx_z63_video_'+r['name']+'_original';offset=symbols[name]-begin;size=r.get('bytes',4)
+            if code[offset:offset+size]!=original[r['address']-base:r['address']-base+size]:
+                raise ValueError('video displaced instruction differs')
+            branch=struct.unpack_from('<I',code,offset+size)[0];delta=branch&0x3ffffff
+            if delta&(1<<25):delta-=1<<26
+            if branch>>26!=5 or symbols[name]+size+delta*4!=r['address']+size:
+                raise ValueError('video original continuation differs')
+        for name,address in profile['video_quality']['returns'].items():
+            if symbols.get(name)!=address:raise ValueError('video interior continuation differs')
     if {int(a,16):n for a,n in report['hooks'].items()} != expected:
         raise ValueError('missing or unexpected hooks')
     verify_application(original, candidate, report, profile)
