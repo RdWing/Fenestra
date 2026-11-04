@@ -28,6 +28,9 @@ def generate(profile, original, out):
             ('core.services','DEVICE','DEVICE','BINDING')]:
         lines.append('{'+json.dumps(name)+',FX_BIND_'+kind+',FX_CALL_'+abi+',1,0,FX_SDK_'+cap+',0,1,{0}},')
     lines.insert(0,'#include "fenestra_tasks.h"\n#include "fenestra_native_scene.h"\n#include "fenestra_ui_document.h"\n#include "fenestra_native_ui_callbacks.h"\n#include "fenestra_native_editor.h"')
+    lines.insert(0,'#include "fenestra_extensions.h"')
+    for name in ('core.providers','core.streams','core.logs','core.time','core.self'):
+        lines.append('{'+json.dumps(name)+',FX_BIND_DEVICE,FX_CALL_DEVICE,1,FX_BIND_PROVIDER,FX_SDK_BINDING,0,(uintptr_t)fx_extensions_resource,{0}},')
     lines.extend(['#ifdef FX_NATIVE_UI_INPUT',
         '{"core.ui.document",FX_BIND_DEVICE,FX_CALL_DEVICE,1,FX_BIND_PROVIDER,FX_SDK_MENU,0,(uintptr_t)fx_ui_document_resource,{0}},',
         '{"camera.ui.input.text",FX_BIND_FUNCTION,FX_CALL_U64_8,1,FX_BIND_ESCAPE,FX_SDK_NATIVE,0,(uintptr_t)fx_native_ui_text_input,{0}},',

@@ -3,6 +3,7 @@
 #include "fenestra_platform.h"
 #include "fenestra_native_ui_callbacks.h"
 #include "fenestra_resources.h"
+#include "fenestra_extensions.h"
 #include "services.h"
 #include "fenestra_worker_wait.h"
 #include "fenestra_worker_pace.h"
@@ -90,6 +91,7 @@ static void run(void *context) {
         uint64_t loop_ticket=fx_worker_wait_ticket(&w->wait);
         fx_service_fault_poll(&w->service);
         FxPlatformOwner *owner=&((FxZ63Services *)w->service.backend.context)->platform;
+        if(atomic_load_explicit(&owner->extensions,memory_order_acquire))fx_extensions_pulse(owner,clock_ms());
         fx_native_scene_poll(owner);
         if(owner->phase==FX_OWNER_FAULT && atomic_load(&w->phase)!=FX_Z63_WORKER_PANIC)
             panic(w,owner->first_error?(FxResult)owner->first_error:FX_INTEGRITY);

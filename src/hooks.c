@@ -139,8 +139,15 @@ uint64_t fx_hook_invoke(uint64_t a,uint64_t b,uint64_t c,uint64_t d,uint64_t e,u
  * x16/x17 are AAPCS64 scratch. The shared entry preserves LR and alignment. */
 #if defined(__aarch64__)
 extern void fx_hook_gate_enter(void);
-__asm__(".text\n.align 4\n.global fx_hook_gate_enter\nfx_hook_gate_enter:\n"
-        "stp x16,x30,[sp,#-16]!\nbl fx_hook_invoke\n"
+#if defined(__APPLE__)
+#define FX_HOOK_ASM_ENTER "_fx_hook_gate_enter"
+#define FX_HOOK_ASM_INVOKE "_fx_hook_invoke"
+#else
+#define FX_HOOK_ASM_ENTER "fx_hook_gate_enter"
+#define FX_HOOK_ASM_INVOKE "fx_hook_invoke"
+#endif
+__asm__(".text\n.align 4\n.global " FX_HOOK_ASM_ENTER "\n" FX_HOOK_ASM_ENTER ":\n"
+        "stp x16,x30,[sp,#-16]!\nbl " FX_HOOK_ASM_INVOKE "\n"
         "ldr x30,[sp,#8]\nadd sp,sp,#16\nret\n");
 void fx_hook_page_encode(uint8_t *page,FxHookCell *cells) {
     for(uint32_t i=0;i<FX_HOOK_GATES_PER_PAGE;++i) {

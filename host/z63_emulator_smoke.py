@@ -131,6 +131,7 @@ def main():
     parser.add_argument('--startup-test',choices=('manual','guard','autoload','config'),help='check native card startup policy and optional recovery/configuration actions')
     parser.add_argument('--shutdown-test',action='store_true',help='after startup acceptance, use the model power switch and require clean journal retirement')
     parser.add_argument('--panic-test',action='store_true',help='require the retained native panic screen after a deliberate module CPU fault')
+    parser.add_argument('--resident-fault-test',action='store_true',help='check a reported native init failure and managed-peer retirement, without a CPU exception')
     parser.add_argument('--panic-peer-test',action='store_true',help='also require the other module owner to acknowledge native stop')
     parser.add_argument('--rtos-test', action='store_true', help='exercise the RTOS monitor and dedicated native printf worker through PTP')
     parser.add_argument('--linux-test', action='store_true', help='exercise original Linux IPC shell and correlated output through PTP')
@@ -145,6 +146,7 @@ def main():
     parser.add_argument('--reader-test', action='store_true')
     parser.add_argument('--demo-test',action='store_true',help='exercise the bundled character-rain module, native Back/blur and reopen')
     parser.add_argument('--video-test',action='store_true',help='exercise the ProRes module choice page and deferred native publication')
+    parser.add_argument('--video-prepare',choices=('direct','legacy-half'),default='direct',help='recording control: switch directly to Movie, or reproduce the earlier still-half-press sequence')
     parser.add_argument('--video-record-choice',type=int,choices=range(5),help='video test: select one quality and observe native recording admission up to the expected strict codec-model stop')
     parser.add_argument('--expect', choices=('success', 'fault', 'rejected', 'sdk', 'services', 'runtime', 'ui', 'timeout', 'files', 'mapping', 'global'), default='success')
     args = parser.parse_args()
@@ -152,12 +154,14 @@ def main():
         parser.error('--panic-test requires --native-menu-test --expect fault')
     if args.panic_peer_test and (not args.panic_test or args.module_count!=2):
         parser.error('--panic-peer-test requires --panic-test --module-count 2')
+    if args.resident_fault_test and (not args.panic_test or args.module_count!=2):
+        parser.error('--resident-fault-test requires --panic-test --module-count 2')
     if args.linux_agent and not args.linux_test:parser.error('--linux-agent requires --linux-test')
     if args.demo_test and (not args.ui_test or args.expect!='ui' or args.dialog_test or args.reader_test):
         parser.error('--demo-test requires --ui-test --expect ui without another modal control')
     if not 10 <= args.seconds <= 300:
         parser.error('seconds must be 10..300')
-    if not 1<=args.module_count<=32 or (args.module_count!=1 and ((args.expect!='runtime' and not args.panic_peer_test) or args.manager_test)):
+    if not 1<=args.module_count<=32 or (args.module_count!=1 and ((args.expect!='runtime' and not args.panic_peer_test and not args.resident_fault_test and not args.video_test) or args.manager_test)):
         parser.error('multiple modules require the runtime control without manager navigation')
     if args.repeat_activation and not args.native_menu_test:
         parser.error('--repeat-activation requires --native-menu-test')
@@ -673,15 +677,22 @@ def main():
                         qmp('screendump',{'filename':str(out/'video-file-type-options.ppm')})
                         keypress('up');keypress('up');keypress('ok');view()
                         qmp('screendump',{'filename':str(out/'video-file-type-selected.ppm')})
-                        keypress('half');keypress('lever=video');time.sleep(10)
+                        if args.video_prepare=='legacy-half':keypress('half')
+                        keypress('lever=video');time.sleep(10)
+                        qmp('screendump',{'filename':str(out/'movie-prepared.ppm')})
                         if not qmp('query-status').get('running'):raise RuntimeError('Movie preparation stopped before record input')
-                        keypress('movie');time.sleep(8)
-                        status=qmp('query-status')
+                        keypress('movie')
+                        deadline=time.monotonic()+20
+                        while True:
+                            status=qmp('query-status')
+                            if not status.get('running') or time.monotonic()>=deadline:break
+                            time.sleep(.2)
+                        qmp('screendump',{'filename':str(out/'movie-requested.ppm')})
                         request=(read64(0xa03324df0)>>32)&0xffffffff
                         expected=max(0,args.video_record_choice-1)
                         stopped='addr=0x01600001c size=4 value=0x7cf10 pc=0x040c6a0ec' in (out/'qemu.log').read_text()
                         native=dict(choice=args.video_record_choice,encoder_type=request,expected_type=expected,
-                            strict_codec_stop=stopped,status=status,model_overrides=['gfx-skip-unmodelled=on'],
+                            strict_codec_stop=stopped,status=status,preparation=args.video_prepare,model_overrides=['gfx-skip-unmodelled=on'],
                             recording_completed=False,physical_camera_tested=False)
                         video_result['native_request']=native
                         video_result['passed']=video_result['passed'] and stopped and request==expected and not status.get('running')
@@ -892,13 +903,24 @@ def main():
                     offset=struct.unpack_from('<I',image,symbols['fx_z63_menu_runtime_offset']-base)[0]
                     runtime=read64(read64(0xa02912e10+80)+offset);panic=read64(runtime+layout[2])
                     values=[read64(panic+at)&0xffffffff for at in layout[3:8]]
-                    if values[:3]!=[1,1,0] or not values[3] or values[4]!=1:
+                    if values[:3]!=[1,1,0] or not values[3] or values[4]!=(0 if args.resident_fault_test else 1):
                         raise RuntimeError('Native panic presentation differs: '+repr(values))
                     qmp('screendump',{'filename':str(out/'panic.ppm')})
                     pixel_control=panic_pixel_control(out/'panic.ppm')
                     if not pixel_control['passed']:raise RuntimeError('Panic rendered without visible error-screen pixels')
                     panic_result=dict(captured=True,shown=True,frames=values[3],cpu_faults=values[4],
                         esr=hex(read64(panic+layout[8])),pixel_control=pixel_control,passed=True)
+                    if args.resident_fault_test:
+                        runtime_meta=struct.unpack_from('<5I',image,symbols['fx_z63_runtime_layout']-base)
+                        worker_meta=struct.unpack_from('<3I',image,symbols['fx_z63_worker_layout']-base)
+                        if runtime_meta[:2]!=(0x46585236,1) or worker_meta[:2]!=(0x46585736,1):
+                            raise RuntimeError('Peer observation layout differs')
+                        if read64(runtime+runtime_meta[4])&0xffffffff!=2:raise RuntimeError('Panic cohort count differs')
+                        workers=read64(runtime+runtime_meta[3]);worker=read64(workers)
+                        if not worker or read64(worker+worker_meta[2])&0xffffffff!=4:
+                            raise RuntimeError('Managed peer failed to quiesce')
+                        panic_result['managed_peer_quiesced']=True
+                        panic_result['reported_native_failure']=True
                     if args.panic_peer_test:
                         runtime_meta=struct.unpack_from('<5I',image,symbols['fx_z63_runtime_layout']-base)
                         worker_meta=struct.unpack_from('<3I',image,symbols['fx_z63_worker_layout']-base)
@@ -951,8 +973,14 @@ def main():
     elif args.expect == 'ui':
         requests=[(result,detail) for stage,result,detail in stages if stage==51]
         if args.video_test:
-            passed=((60,0,1) in stages and (61,0,0) in stages and video_result['passed'] and
+            passed=((60,0,args.module_count) in stages and
+                sorted(detail for stage,result,detail in stages if stage==61 and result==0)==list(range(args.module_count)) and video_result['passed'] and
                 not any(stage in (40,52) for stage,_,_ in stages))
+            if args.module_count==2:
+                native=[detail for stage,result,detail in stages if stage==90 and result==0]
+                video_result['native_starts']=native
+                video_result['native_stopped']=len(native)==1 and (91,4,native[0]) in stages
+                passed=passed and len(native)==1 and (not args.shutdown_test or video_result['native_stopped'])
         elif args.demo_test:
             passed=((60,0,1) in stages and (61,0,0) in stages and demo_result is not None and
                 len(requests)>=10 and all(r in (0,2,4,12) for r,_ in requests) and
@@ -1001,7 +1029,10 @@ def main():
                   len(requests) >= 10 and all(result == 0 for result, _ in requests) and
                   requests[-1][1] == 24 and not any(stage == 40 for stage, _, _ in stages))
     elif args.expect == 'fault':
-        passed = (10, 0, 0) in stages and (40, 10, 1 << 32) in stages
+        if args.resident_fault_test:
+            passed=((60,0,2) in stages and (61,0,0) in stages and (90,10,1) in stages and
+                (91,4,1) in stages and panic_result is not None and panic_result['managed_peer_quiesced'])
+        else:passed = (10, 0, 0) in stages and (40, 10, 1 << 32) in stages
     else:
         loads = [result for stage, result, _ in stages if stage == 10]
         passed = len(loads) == 1 and loads[0] != 0 and not any(20 <= stage <= 41 for stage, _, _ in stages)

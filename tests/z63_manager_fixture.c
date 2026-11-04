@@ -25,6 +25,7 @@ FxZ63Runtime *fx_z63_menu_runtime(void){return 0;}
 uint32_t fx_z63_runtime_count(const FxZ63Runtime *r){(void)r;return 0;}
 FxZ63ModuleWorker *fx_z63_runtime_worker(const FxZ63Runtime *r,uint32_t i){(void)r;(void)i;return 0;}
 const char *fx_z63_worker_identity(const FxZ63ModuleWorker *w){(void)w;return 0;}
+const char *fx_z63_runtime_identity(const FxZ63Runtime *r,uint32_t i){(void)r;(void)i;return 0;}
 FxResult fx_z63_directory_init(FxZ63Directory *d,FxModuleDirectory *f){(void)d;(void)f;return FX_OK;}
 const FxPlatform *fx_platform_target(void){return 0;}
 FxResult fx_native_modules_init_io(FxNativeModules *m,const FxPlatform *p,const FxNativeMenuProfile *q,void *(*a)(uint32_t),uint32_t t,uint32_t r,const uintptr_t c[5],int active,const FxModuleManagerIO *io){

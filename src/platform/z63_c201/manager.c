@@ -66,7 +66,7 @@ static FxResult rename_module(void *context,const char *from,const char *to) {
 static uint32_t current(void *context,const char *id) {
     (void)context;FxZ63Runtime *runtime=fx_z63_menu_runtime();
     for(uint32_t i=0;i<fx_z63_runtime_count(runtime);++i) {
-        const char *loaded=fx_z63_worker_identity(fx_z63_runtime_worker(runtime,i));
+        const char *loaded=fx_z63_runtime_identity(runtime,i);
         if(loaded && same(loaded,id))return 1u;
     }
     return 0u;

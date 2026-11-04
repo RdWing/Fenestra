@@ -1,13 +1,14 @@
 # Nikon Z6III C2.01 experimental port
 
 This development port adds Fenestra to the native Setup menu, discovers WLM
-packages from the card, and starts SDK workers on original Nikon tasks. Modules
-execute at EL0 with private views; copied requests execute on original tables.
+packages from the card, and starts SDK workers on original Nikon tasks. Managed modules
+execute at EL0 with private views. Native residents execute on original
+mappings. Copied service requests use original firmware tables.
 Native application pages and queued UI calls use the original input task.
 
 Full-system emulator controls cover memory, event flags, caller context,
 resource snapshots, queued native calls, page paths and RGBA images, native
-input, file create/write/seek/readback, and same-request critical calls. Capability
+input, file create/write/seek/readback, and same-request critical calls. Managed capability
 grants are restricted to each package's required and optional declarations.
 The native manager supports 8.3 module names, Off/On switching and native
 keyboard search. Full-system controls cover cancellation, submitted text,
@@ -51,6 +52,43 @@ and CPU diagnostics are checked separately from the recorded renderer frames.
 Live titles and measured label/value fitting have separate visual acceptance.
 All candidates remain **emulator-only; DO_NOT_FLASH**. No physical camera or
 updater was tested.
+
+## Native resident modules
+
+This local branch assumes [PR #6](https://github.com/WonderLantern/Fenestra/pull/6)
+at `2bbea75282b7a56d6855a33b303b35ce6f3d23d1`. The Z6III adapter loads version-4
+native WLM packages beside managed packages. It registers `core.providers`,
+`core.streams`, `core.logs`, `core.time` and `core.self`. The standalone SDK
+includes the Z63 target identity.
+
+A native entry runs once after activation on the original loader task and
+mappings. Native modules own their tasks and callbacks. They share the original
+firmware fault domain. They do not receive managed EL0 exception containment.
+Code and state remain resident until reboot, including failed initialization.
+Shutdown and Panic notify residents and wait for resource retirement. A stop
+acknowledgement does not unload native code.
+
+The [ProRes module pair](../modules/prores/README.md) tests a managed UI client
+with a native provider. The optional core video backend still owns the pinned
+ROM hooks and early admission fence. Generic native limits allow a 32 MiB
+package and 64 MiB image. These limits reserve no memory and do not qualify
+such sizes on physical C2.01 hardware.
+
+The host suite checks native packages for all three targets. Full-system
+ProRes controls load both modules from a cloned card, select each quality and
+check Stock restoration during power-switch shutdown. Separate recording
+controls stop at the strict CODEC-model gap. No completed encoding or physical
+camera test follows from these results.
+
+The reported native-failure control uses
+`examples/z63_probe/resident_fault.c` and
+`--panic-test --resident-fault-test --module-count 2 --expect fault`.
+It tests a nonzero native entry return, retried stop notification and managed
+peer retirement. It does not test containment of a native CPU exception.
+
+For the reported native-failure control, use a fresh card with the managed
+ProRes package first and `natfault.wlm` second. This fixture checks managed
+index 0 and native index 1.
 
 ## Inputs and bindings
 

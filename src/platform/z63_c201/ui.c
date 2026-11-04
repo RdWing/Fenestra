@@ -171,7 +171,7 @@ static FxNativeUi *instance(FxZ63Ui *s,uint32_t index,const FxNativePage *parent
        fx_native_ui_actions,fx_native_ui_options,callbacks)!=FX_OK){fx_native_ui_space_rollback(&s->space,physical,FX_NATIVE_UI_PAGES);map_release(0,node);return 0;}
     u->request_refresh=fx_native_ui_refresh_owner;u->editor_profile=&editor_profile;u->dialog=&dialog_style;u->reader_profile=&reader_profile;
     if(fx_ui_dispatch_bind_page(&s->dispatch,u)!=FX_OK){fx_native_ui_space_rollback(&s->space,physical,FX_NATIVE_UI_PAGES);map_release(0,node);return 0;}
-    fx_native_ui_identity(u,fx_z63_worker_identity(fx_z63_runtime_worker(runtime,index)));
+    fx_native_ui_identity(u,fx_z63_runtime_identity(runtime,index));
     node->next=s->nodes;s->nodes=node;++s->count;
     atomic_store_explicit(&owner->native_ui,(uintptr_t)u,memory_order_release);pager(s,u);return u;
 }

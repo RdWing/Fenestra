@@ -76,6 +76,7 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
             raise ValueError('runtime requires SDK/menu, and discovers packages without --module')
         flags += ['-DFX_Z63_RUNTIME=1','-DFX_Z63_MODULE_PROBE=1']
         sources += ['src/platform/z63_c201/runtime.c','src/platform/z63_c201/module_worker.c','src/platform/z63_c201/discovery.c']
+        sources += ['src/resident.c','src/resident_native.c']
         sources += ['src/platform/z63_c201/startup.c','src/startup.c','src/startup_files.c']
     if ptp:
         if not sdk or not menu:
@@ -112,6 +113,7 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
         flags += ['-DFX_Z63_SDK=1', '-DFX_PLATFORM_PROFILE=1']
         sources += ['src/platform/z63_c201/services.c']
         sources += ['src/' + n for n in ('services.c','platform.c','binding_store.c','platform_native.c','native_resources.c','native_call.c','native_call_a64.S','machine.c','hooks.c','records.c','worker_wait.c','native_hook_pages.c','capacity.c','slot_pool.c','text_fit.c','tasks.c','scene.c','module_bus.c')]
+        sources += ['src/extensions.c','src/extensions_native.c','src/stream.c']
     if discovery:
         if module is None:
             raise ValueError('discovery probe requires a module')

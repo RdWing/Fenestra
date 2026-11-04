@@ -53,7 +53,7 @@ static FxResult close_directory(void *context) {
 }
 static FxResult read_module(void *context,const char *name,uint8_t *out,uint32_t capacity,uint32_t *bytes) {
     FxZ63Directory *s=context;char path[64]="A:\\FENESTRA\\";
-    if(!bytes || !out || !capacity || capacity>FX_CARD_LIMIT+1u || !fx_service_name(name,32u,1))return FX_ARGUMENT;
+    if(!bytes || !out || !capacity || capacity>FX_NATIVE_MODULE_PACKAGE_LIMIT+1u || !fx_service_name(name,32u,1))return FX_ARGUMENT;
     *bytes=0;
     if(s->uncertain)return FX_CLOSE;
     uint32_t n=0;while(name[n])++n;memcpy(path+12u,name,n+1u);
@@ -61,7 +61,7 @@ static FxResult read_module(void *context,const char *name,uint8_t *out,uint32_t
     if(fd<0)return FX_IO;
     FxResult result=FX_OK;
     for(uint32_t calls=0;*bytes<capacity;++calls) {
-        if(calls>=FX_CARD_LIMIT/511u+2u){result=FX_BUDGET;break;}
+        if(calls>=capacity/511u+2u){result=FX_BUDGET;break;}
         uint32_t count=0,room=capacity-*bytes;if(room>65536u)room=65536u;
         uint32_t error=s->files.read(s->files.context,fd,out+*bytes,room,&count);
         if(error || count>room){result=FX_IO;break;}

@@ -6,10 +6,11 @@
 /* camera.video.quality/v1: session-only, family-specific choices. A request
  * can remain pending until all native admission owners have reached idle. */
 #define FX_VIDEO_QUALITY_ABI 1u
+#define FX_VIDEO_QUALITY_PROVIDER "camera.video.quality"
 #define FX_VIDEO_FAMILY_PRORES422 1u
 enum { FX_VIDEO_QUALITY_QUERY, FX_VIDEO_QUALITY_STATUS, FX_VIDEO_QUALITY_SELECT };
 enum { FX_VIDEO_STOCK, FX_VIDEO_HQ, FX_VIDEO_STANDARD, FX_VIDEO_LT, FX_VIDEO_PROXY };
-enum { FX_VIDEO_QUALITY_SESSION_ONLY=1u, FX_VIDEO_QUALITY_EXPERIMENTAL=2u };
+enum { FX_VIDEO_QUALITY_SESSION_ONLY=1u, FX_VIDEO_QUALITY_EXPERIMENTAL=2u, FX_VIDEO_QUALITY_UNAVAILABLE=4u };
 typedef struct {uint32_t abi,bytes,family,choices,flags,reserved;} FxVideoQualityInfo;
 typedef struct {uint32_t abi,bytes,family,choice;} FxVideoQualitySelection;
 typedef struct {

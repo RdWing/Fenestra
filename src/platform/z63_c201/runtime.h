@@ -9,5 +9,6 @@ uint32_t fx_z63_runtime_state(const FxZ63Runtime *);
 uint32_t fx_z63_runtime_count(const FxZ63Runtime *);
 FxZ63ModuleWorker *fx_z63_runtime_worker(const FxZ63Runtime *,uint32_t);
 FxPlatformOwner *fx_z63_runtime_owner(const FxZ63Runtime *,uint32_t);
+const char *fx_z63_runtime_identity(const FxZ63Runtime *,uint32_t);
 void fx_z63_menu_set_runtime(FxZ63Runtime *);
 #endif
