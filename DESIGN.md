@@ -59,11 +59,15 @@ The shared `src/ui_controls.inc` validates control state.
 `src/platform/z63_c201/ui.c` connects the Z63 profile.
 The SDK demo supplies a sibling page and focus workflow.
 
-The ProRes Quality row shows the requested value. Effective reports the
-published value or pending/fault state. Missing providers disable selection
-and show a recovery instruction. A page close preserves the session choice.
-Shutdown withdraws the provider and requests Stock through resource cleanup.
-The service contracts in the module README define admission and retirement.
+One managed ProRes module calls the core video backend. The app's Quality row
+shows the requested value. Effective reports the published value or pending/fault
+state. Missing services disable selection and show a core requirement.
+The optional Video recording row uses the same state and native choice page.
+It follows Video quality (N-RAW), stays disabled outside ProRes and keeps the
+native font and value alignment. The target adapter owns this placement.
+A page close preserves the session choice. Stop disables native menu input
+before core cleanup requests Stock. The module README defines admission and
+retirement.
 
 Use the camera's button navigation. Keep Back available. Do not simulate
 successful selection while the provider or backend is unavailable.

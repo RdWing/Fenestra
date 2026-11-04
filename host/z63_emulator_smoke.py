@@ -119,6 +119,7 @@ def panic_pixel_control(path):
 
 
 def main():
+    harness_source=Path(__file__).read_bytes()
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('qemu', 'application', 'receipt', 'loader', 'snor', 'nand', 'mcu', 'card', 'raw', 'plugin', 'output-dir'):
         parser.add_argument('--' + name, type=Path, required=True)
@@ -145,6 +146,7 @@ def main():
     parser.add_argument('--dialog-test', action='store_true')
     parser.add_argument('--reader-test', action='store_true')
     parser.add_argument('--demo-test',action='store_true',help='exercise the bundled character-rain module, native Back/blur and reopen')
+    parser.add_argument('--video-menu-test',action='store_true',help='check the native Video quality (ProRes) row and its shared state')
     parser.add_argument('--video-test',action='store_true',help='exercise the ProRes module choice page and deferred native publication')
     parser.add_argument('--video-prepare',choices=('direct','legacy-half'),default='direct',help='recording control: switch directly to Movie, or reproduce the earlier still-half-press sequence')
     parser.add_argument('--video-record-choice',type=int,choices=range(5),help='video test: select one quality and observe native recording admission up to the expected strict codec-model stop')
@@ -179,6 +181,7 @@ def main():
         parser.error('native UI tests require --native-menu-test')
     receipt = json.loads(args.receipt.read_text())
     application = args.application.resolve(strict=True)
+    if args.video_menu_test and not args.video_test:parser.error('--video-menu-test requires --video-test')
     if args.video_test and (not args.ui_test or not args.native_menu_test or not receipt.get('video')):
         parser.error('--video-test requires a video core and native UI/menu test')
     if args.video_record_choice is not None and (not args.video_test or args.startup_test or args.shutdown_test):
@@ -189,6 +192,7 @@ def main():
     if out.exists():
         raise ValueError('new output directory required')
     out.mkdir(parents=True)
+    (out/'test-harness.py').write_bytes(harness_source)
     clone(args.nand.resolve(strict=True), out / 'nand.img')
     clone(args.card.resolve(strict=True), out / 'card.img')
     symbols = receipt['symbols']
@@ -213,8 +217,8 @@ def main():
             'mcu-image=' + str(args.mcu.resolve(strict=True)), 'z9-capture=on', 'cfexpress=on',
             'z9-capture-raw=' + str(args.raw.resolve(strict=True)), 'sio-sink=9:8:7',
             'imu-mg=1000:0:0', 'scanout-dump=' + str(out / 'frame.ppm')])
-        if args.video_record_choice is not None:
-            # Movie overlays contain separately unmodeled GFX commands. Keep
+        if args.video_record_choice is not None or args.video_menu_test:
+            # Video-format transitions and movie overlays contain separately unmodeled GFX commands. Keep
             # CODEC strict; this control qualifies request data, not drawing.
             machine+=',gfx-skip-unmodelled=on'
         if args.ptp_client:
@@ -330,7 +334,7 @@ def main():
                             snapshot['surface_list_head']=hex(read64(surface+0xc8))
                             snapshot['surface_list_count']=read64(surface+0xd8)&0xffffffff
                             nodes=[];node=read64(surface+0xc8);first=node
-                            for _ in range(min(snapshot['surface_list_count'],4)):
+                            for _ in range(min(snapshot['surface_list_count'],65 if args.video_menu_test and identity>>16==266 else 4)):
                                 if not 0xa00000000<=node<0xa40000000-24:break
                                 child=read64(node+16)
                                 if 0xa00000000<=child<0xa40000000-0xc0:
@@ -381,6 +385,10 @@ def main():
                 if args.native_menu_test:
                     if not receipt.get('menu') or args.keys:
                         raise ValueError('native menu test requires a menu image and no --keys')
+                    if args.video_menu_test:
+                        root=0xa02908f10;descriptor=read64(root+80)
+                        if descriptor!=0xa028cae10 or read64(descriptor+32)&65535!=45:
+                            raise RuntimeError('Inactive Video menu changed before module activation')
                     keypress('menu')
                     if view() & 65535 != 2:
                         keypress('menu')
@@ -664,6 +672,122 @@ def main():
                     if (scanout_matches < .90 and args.expect!='global' and not args.panic_test) or menu_matches >= .50:
                         raise RuntimeError('live-view scanout control did not distinguish menu/return')
                     menu_completed = True
+                    if args.video_menu_test:
+                        def read_bytes(address,count):
+                            output=qmp('human-monitor-command',{'command-line':'xp /'+str(count)+'bx '+hex(address)})
+                            values=re.findall(r'\b0x([0-9a-fA-F]{2})\b',output)
+                            if len(values)!=count:raise RuntimeError('Native byte read differs')
+                            return bytes(int(value,16) for value in values)
+                        root=0xa02908f10
+                        keypress('menu');keypress('left');keypress('left')
+                        for _ in range(3):keypress('up')
+                        keypress('right')
+                        if view()>>16!=266:raise RuntimeError('Video recording menu not reached')
+                        descriptor=read64(root+80);rows=read64(descriptor+16);events=read64(descriptor+24)
+                        if descriptor==0xa028cae10 or read64(descriptor+32)&65535!=46:
+                            raise RuntimeError('ProRes row did not attach')
+                        image=application.read_bytes();original=image[0x43cb3868-0x40160000:0x43cb3868-0x40160000+45*44]
+                        copied=read_bytes(rows,46*44)
+                        if copied[:10*44]+copied[11*44:]!=original:raise RuntimeError('Original Video rows changed')
+                        original=image[0x43cb4028-0x40160000:0x43cb4028-0x40160000+45*8]
+                        copied_events=read_bytes(events,46*8)
+                        if copied_events[:10*8]+copied_events[11*8:]!=original:raise RuntimeError('Original Video events changed')
+                        positions=[]
+                        def root_position():
+                            index=((read64(root+48)>>16)&65535)+(read64(root+88)&65535)
+                            if index>=46:raise RuntimeError('Native selection outside copied rows')
+                            identity=int.from_bytes(copied[index*44+24:index*44+28],'little')
+                            positions.append(dict(index=index,row=identity,selected=(read64(root+48)>>16)&65535,tail=read64(root+88)&65535));(out/'video-menu-positions.json').write_text(json.dumps(positions,indent=2)+'\n')
+                            return identity
+                        def seek(identity,direction):
+                            for _ in range(47):
+                                if not qmp('query-status').get('running'):raise RuntimeError('QEMU stopped during native menu navigation')
+                                if root_position() in (identity if isinstance(identity,tuple) else (identity,)):return
+                                keypress(direction)
+                            raise RuntimeError('Native row not reached: '+repr(identity))
+                        def native_value(expected):
+                            surface=read64(root+32);node=read64(surface+0xc8);row=0
+                            for _ in range(min(read64(surface+0xd8)&0xffffffff,64)):
+                                obj=read64(node+16)
+                                if read64(obj)&0xffffffff==0x7f50:row=obj;break
+                                node=read64(node+8)
+                            if not row:raise RuntimeError('ProRes native widget absent')
+                            node=read64(row+0x128);parts=[]
+                            for _ in range(min(read64(row+0x138)&0xffffffff,8)):
+                                obj=read64(node+16);parts.append(dict(id=read64(obj)&0xffffffff,resource=read64(obj+8)))
+                                node=read64(node+8)
+                            layout=struct.unpack_from('<6I',image,symbols['fx_z63_video_menu_layout']-0x40160000)
+                            menu=read64(read64(0xa02912e10+80)+meta[2]+layout[2])
+                            native_widgets.append(dict(expected=expected,parts=parts,refresh_calls=read64(menu+layout[3])&0xffffffff,
+                                refresh_result=(read64((menu+layout[4])&~7)>>((layout[4]&7)*8))&0xffffffff,
+                                observed_page=hex(read64(menu+layout[5])),callbacks=hex(read64(root+40))))
+                            (out/'video-menu-widgets.json').write_text(json.dumps(native_widgets,indent=2)+'\n')
+                            if ((2<<32)|expected) not in [part['resource'] for part in parts]:
+                                raise RuntimeError('Native ProRes value binding differs: '+repr(parts))
+                        native_widgets=[];text_base=int.from_bytes(copied[10*44:10*44+4],'little')
+                        seek(0x7f50,'down');native_value(text_base+7)
+                        qmp('screendump',{'filename':str(out/'video-menu-disabled.ppm')})
+                        for button in ('right','ok'):
+                            keypress(button)
+                            if view()>>16!=266:raise RuntimeError('Disabled ProRes row opened')
+                        seek((12394,12728),'up');keypress('right')
+                        if view()>>16!=278:raise RuntimeError('File type selector not reached')
+                        keypress('up');keypress('up');keypress('ok')
+                        if view()>>16==278:
+                            qmp('screendump',{'filename':str(out/'file-type-warning.ppm')});keypress('ok')
+                        if view()>>16!=266:raise RuntimeError('File type Back route differs')
+                        seek(0x7f50,'down');native_value(text_base+5)
+                        qmp('screendump',{'filename':str(out/'video-menu-enabled.ppm')})
+                        unchanged=video_state()
+                        for cancel in ('left','back-row'):
+                            keypress('right')
+                            if view()>>16!=0x7060:raise RuntimeError('Cancel selector not reached')
+                            if cancel=='left':keypress('left')
+                            else:keypress('down');keypress('ok')
+                            if view()>>16!=266 or video_state()!=unchanged:
+                                raise RuntimeError('Native selector cancel changed state or route')
+                        menu_states=[]
+                        for choice in (1,2,3,4,0,3):
+                            keypress('right')
+                            if view()>>16!=0x7060:raise RuntimeError('Native ProRes selector not reached')
+                            current=json.loads((out/'native-views.jsonl').read_text().splitlines()[-1]);page=int(current['chain'][-1],16)
+                            selected=(read64(page+48)>>16)&65535
+                            if selected>5:raise RuntimeError('ProRes selected row outside menu')
+                            for _ in range(abs(selected-choice)):keypress('down' if choice>selected else 'up')
+                            qmp('screendump',{'filename':str(out/('video-menu-choice-'+str(choice)+'.ppm'))})
+                            keypress('ok')
+                            if view()>>16!=266:raise RuntimeError('ProRes selection did not return to Video menu')
+                            deadline=time.monotonic()+8
+                            while time.monotonic()<deadline:
+                                state=video_state()
+                                if state['requested']==choice and state['effective']==choice and not state['fault']:break
+                                time.sleep(.1)
+                            else:raise RuntimeError('Native menu choice not published: '+repr(state))
+                            native_value(text_base+1+choice);menu_states.append(state)
+                        seek(12613,'down');keypress('right')
+                        if view()>>16!=282:raise RuntimeError('Original Image area route differs')
+                        keypress('left')
+                        if view()>>16!=266:raise RuntimeError('Original Image area Back differs')
+                        keypress('left');keypress('left')
+                        for _ in range(8):
+                            if view()>>16==690:break
+                            keypress('up')
+                        if view()>>16!=690:raise RuntimeError('Setup return differs')
+                        keypress('right');keypress('right')
+                        if view()>>16!=0x7000:raise RuntimeError('Fenestra return differs')
+                        root_view=json.loads((out/'native-views.jsonl').read_text().splitlines()[-1])
+                        fenestra_root=int(root_view['chain'][-1],16)
+                        selected=(read64(fenestra_root+48)>>16)&65535
+                        if selected>6:raise RuntimeError('Fenestra root selection differs')
+                        for _ in range(selected):keypress('up')
+                        keypress('down');keypress('down');keypress('ok');keypress('ok');time.sleep(2)
+                        if view()>>16!=0x7100:raise RuntimeError('ProRes app did not reopen')
+                        qmp('screendump',{'filename':str(out/'prores-app-after-native-lt.ppm')})
+                        if video_state()['requested']!=3:raise RuntimeError('App return changed the native choice')
+                        video_result['native_menu']=dict(original_rows_preserved=45,original_events_preserved=45,
+                            disabled_h265=True,choices=menu_states,app_reopened_with_lt=True,cancel_preserves_state=True,original_image_area_route=True,
+                            model_overrides=['gfx-skip-unmodelled=on'],completed_encoding=False,physical_camera_tested=False,passed=True)
+                        (out/'video-quality.json').write_text(json.dumps(video_result,indent=2)+'\n')
                     if args.video_record_choice is not None:
                         # This seed starts at H.265 8-bit, fifth file-type
                         # option; ProRes 422 HQ is the third. Configure through
@@ -675,7 +799,9 @@ def main():
                         for _ in range(4):keypress('down')
                         keypress('right');view()
                         qmp('screendump',{'filename':str(out/'video-file-type-options.ppm')})
-                        keypress('up');keypress('up');keypress('ok');view()
+                        keypress('up');keypress('up');keypress('ok')
+                        if view()>>16==278:keypress('ok')
+                        if view()>>16!=266:raise RuntimeError('Recording file type confirmation differs')
                         qmp('screendump',{'filename':str(out/'video-file-type-selected.ppm')})
                         if args.video_prepare=='legacy-half':keypress('half')
                         keypress('lever=video');time.sleep(10)
@@ -976,6 +1102,7 @@ def main():
             passed=((60,0,args.module_count) in stages and
                 sorted(detail for stage,result,detail in stages if stage==61 and result==0)==list(range(args.module_count)) and video_result['passed'] and
                 not any(stage in (40,52) for stage,_,_ in stages))
+            if args.video_menu_test:passed=passed and video_result.get('native_menu',{}).get('passed',False)
             if args.module_count==2:
                 native=[detail for stage,result,detail in stages if stage==90 and result==0]
                 video_result['native_starts']=native
@@ -1050,7 +1177,7 @@ def main():
             passed = passed and len(starts) == 1 and starts[0][0] == 0 and starts[0][1] > 0
     if args.tasks_test:
         passed=passed and task_result is not None and any(stage==54 and result==0 and detail==int(task_result['original_ui_task'],16) for stage,result,detail in stages)
-    result = dict(video=video_result,demo=demo_result,panic=panic_result,startup=startup_result,manager=manager_result,reader=reader_result,tasks=task_result,passed=passed, target='z63-c201', expected=args.expect, status=status,
+    result = dict(test_harness_sha256=hashlib.sha256(harness_source).hexdigest(),video=video_result,demo=demo_result,panic=panic_result,startup=startup_result,manager=manager_result,reader=reader_result,tasks=task_result,passed=passed, target='z63-c201', expected=args.expect, status=status,
         stages=stages, seconds=time.monotonic() - start, candidate_sha256=receipt['candidate_sha256'],
         qemu_sha256=hashlib.sha256(args.qemu.read_bytes()).hexdigest(),
         plugin_sha256=hashlib.sha256(args.plugin.read_bytes()).hexdigest(),

@@ -19,7 +19,14 @@
 #include "fenestra_native_display.h"
 #define TEXT 3300u
 #define MANAGER_TEXT (TEXT+10u)
-#define MODULE_TEXT (MANAGER_TEXT+FX_NATIVE_UI_TEXTS+2u)
+#define VIDEO_TEXT (MANAGER_TEXT+FX_NATIVE_UI_TEXTS+2u)
+#ifdef FX_Z63_VIDEO
+#include "video_quality.h"
+#define MODULE_TEXT (VIDEO_TEXT+FX_Z63_VIDEO_MENU_TEXTS)
+#else
+#define MODULE_TEXT VIDEO_TEXT
+#endif
+uint32_t fx_z63_ui_video_text_base(void){return VIDEO_TEXT;}
 #define STRIDE (FX_NATIVE_UI_TEXTS+2u)
 extern void *fx_z63_current_page(void);
 extern uint64_t fx_z63_menu_navigate(uint32_t);
@@ -136,6 +143,9 @@ FxResult fx_native_ui_flush_owner(FxPlatformOwner *owner) {
             }
         }
     }
+#ifdef FX_Z63_VIDEO
+    if(r==FX_EMPTY)r=fx_z63_video_menu_flush(owner,page,&destination);
+#endif
     ((void (*)(void *))(uintptr_t)0x40d32864u)(mutex);
     if(destination){(void)fx_z63_menu_navigate(destination);fx_native_ui_refresh_owner(owner);}
     return r;

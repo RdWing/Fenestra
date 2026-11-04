@@ -6,6 +6,7 @@ typedef struct FxZ63Ui FxZ63Ui;
 FxZ63Ui *fx_z63_ui_create(const FxNativeMenuProfile *);
 FxZ63Ui *fx_z63_menu_ui(void);
 FxResult fx_z63_menu_text_ensure(uint32_t);
+FxResult fx_z63_menu_text_style(uint32_t,uint32_t,uint32_t);
 FxResult fx_z63_ui_register(FxPlatformOwner *);
 FxNativePage *fx_z63_ui_page(uint32_t);
 uint32_t fx_z63_ui_manage(void *);

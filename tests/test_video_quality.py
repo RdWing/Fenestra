@@ -13,12 +13,12 @@ class VideoQualityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             binary=Path(tmp)/'prores-module'
             subprocess.run([cc,'-std=c11','-Wall','-Wextra','-Werror','-Wconversion','-Wshadow',
-                '-I',str(ROOT/'include'),*[str(ROOT/p) for p in ['tests/prores_module_fixture.c','modules/prores/native.c',
+                '-I',str(ROOT/'include'),*[str(ROOT/p) for p in ['tests/prores_module_fixture.c',
                     'src/video_quality.c','src/platform.c','src/binding_store.c','src/native_call.c','src/accounting.c',
                     'src/services.c','src/module.c','src/sha256.c','src/memory.c','src/extensions.c','src/stream.c']],'-o',str(binary)],check=True)
             subprocess.run([str(binary)],check=True)
             subprocess.run([str(binary),'old-core'],check=True)
-            subprocess.run([str(binary),'no-video'],check=True)
+            subprocess.run([str(binary),'no-menu'],check=True)
     def test_native_owner_fence_and_deferred_stock_restoration(self):
         cc=shutil.which('clang') or shutil.which('cc')
         if not cc:self.skipTest('C compiler unavailable')

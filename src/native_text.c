@@ -37,6 +37,10 @@ FxResult fx_native_text_prepare(const FxNativeTextProfile *p, FxNativePage *page
         if (!ram(object, p->value_bytes))
             return FX_STATE;
         ((void (*)(void *, uint32_t, uint32_t))p->set_text)(object, value, 2u);
+        /* The native setter can refuse a change between text source kinds.
+         * A successful lookup alone does not establish the requested binding. */
+        const uint32_t *binding=object;
+        if(binding[2]!=value || binding[3]!=2u)return FX_STATE;
         /* Native source-2 alignment 2 anchors values at the right edge.
          * The copied stock template centers its short firmware value. */
         ((void (*)(void *, uint32_t))p->set_alignment)(object, 2u);

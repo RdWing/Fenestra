@@ -1379,6 +1379,41 @@
       "address": 1077829732,
       "bytes": 84,
       "sha256": "e28e70c69b606eb3fec36977f8b0a208afe8d6bd4fddbdc13f023a0a2685827e"
+    },
+    {
+      "address": 1077935312,
+      "bytes": 16,
+      "sha256": "935eaeffe661b037a4c6c6773b73176ad1ec8c128c1839df5cc3511b94250f7a"
+    },
+    {
+      "address": 1079598652,
+      "bytes": 16,
+      "sha256": "a9691b244451cb61efcaddddf85a5d91140b188f4ef4f9e106d9f0dfa63c9032"
+    },
+    {
+      "address": 1079598828,
+      "bytes": 16,
+      "sha256": "394b6c247d4d8b822fb27d95385422a19c104677d8c328766fc3cef854a17c23"
+    },
+    {
+      "address": 1077686984,
+      "bytes": 16,
+      "sha256": "e3f9483a7efb0622542967fa1417f227e9d228fc46e893c5bc1be5a95dd7e4a9"
+    },
+    {
+      "address": 1079598832,
+      "bytes": 16,
+      "sha256": "e750b577ab74a79dee18273f0f23f46596a995f5985afc66bb06e31578e0d3a1"
+    },
+    {
+      "address": 1079599424,
+      "bytes": 16,
+      "sha256": "a6e75b140b58d925d7ba4ff696c853f08eb9c3895c3018a4d64a37ace153a74a"
+    },
+    {
+      "address": 1077958364,
+      "bytes": 16,
+      "sha256": "ea505d8407be230fdd9d28ca634a89412017bca8cff38028f20c87cace8c9155"
     }
   ],
   "native_pages": {

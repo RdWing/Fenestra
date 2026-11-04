@@ -202,6 +202,16 @@ static uint32_t debug_toggle(void *context) {
 #ifdef FX_Z63_UI
 FxZ63Ui *fx_z63_menu_ui(void){State *s=state();return s?s->ui:0;}
 FxZ63Runtime *fx_z63_menu_runtime(void){State *s=state();return s?atomic_load_explicit(&s->runtime,memory_order_acquire):0;}
+FxResult fx_z63_menu_text_style(uint32_t first,uint32_t count,uint32_t source) {
+    State *s=state();if(!s || !s->bank || first<s->bank->stock || source>=s->bank->stock ||
+       first>s->bank->capacity || count>s->bank->capacity-first)return FX_ARGUMENT;
+    for(uint32_t i=0u;i<count;++i)s->bank->fonts[first+i]=s->bank->fonts[source];
+    for(uint32_t language=0u;language<s->bank->languages;++language) {
+        uint8_t *attributes=(void *)s->bank->attributes[language];
+        for(uint32_t i=0u;i<count;++i)attributes[first+i]=attributes[source];
+    }
+    return FX_OK;
+}
 FxResult fx_z63_menu_text_ensure(uint32_t n) {
     State *s=state();if(!s)return FX_STATE;FxNativeTextBank *bank=0;
     FxResult r=fx_native_text_bank_grow((FxIndexMemory){0,allocate,release},s->bank,n,&bank);
@@ -310,6 +320,9 @@ void fx_z63_menu_lifecycle(uint32_t event) {
 }
 FxNativePage *fx_z63_menu_page(uint32_t group,uint32_t id) {
     id&=65535u;State *s=state();
+#ifdef FX_Z63_VIDEO
+    if(group==2u && id==FX_Z63_VIDEO_MENU_PAGE)return fx_z63_video_menu_page();
+#endif
     if(group==2u && id>=PAGE && id<0x9500u){
 #ifdef FX_Z63_UI
         if(id!=PAGE)return fx_z63_ui_page(id);
@@ -318,7 +331,11 @@ FxNativePage *fx_z63_menu_page(uint32_t group,uint32_t id) {
     }
     if(group>6u)return 0;
     uintptr_t root=((volatile uintptr_t *)(uintptr_t)UINT64_C(0xa03420d50))[group];
-    return root?(FxNativePage *)(root+(uintptr_t)id*96u):0;
+    FxNativePage *result=root?(FxNativePage *)(root+(uintptr_t)id*96u):0;
+#ifdef FX_Z63_VIDEO
+    if(s && group==2u && id==266u)return fx_z63_video_menu_parent(result,s->navigation,&s->menu.rows[1]);
+#endif
+    return result;
 }
 void fx_z63_menu_text(int32_t language,int32_t id,const uint16_t **text,uint32_t *bytes) {
     static const uint16_t title[]={'F','e','n','e','s','t','r','a'};
@@ -328,6 +345,9 @@ void fx_z63_menu_text(int32_t language,int32_t id,const uint16_t **text,uint32_t
 #endif
     static const uint16_t back[]={'B','a','c','k'};
     if(state()) {
+#ifdef FX_Z63_VIDEO
+        if(fx_z63_video_menu_text((uint32_t)id,text,bytes))return;
+#endif
 #ifdef FX_Z63_RUNTIME
         if(id>=(int32_t)TEXT+4 && id<=(int32_t)TEXT+6) {
             State *s=state();uint32_t row=(uint32_t)id-TEXT-4u;
@@ -363,7 +383,11 @@ uint64_t fx_z63_menu_navigate(uint32_t page) {
     if(page>=PAGE && page<0x9500u){
         if(!state())return 0u;
 #ifdef FX_Z63_UI
-        if(page!=PAGE && !fx_z63_ui_page(page))return 0u;
+        if(page!=PAGE
+#ifdef FX_Z63_VIDEO
+           && page!=FX_Z63_VIDEO_MENU_PAGE
+#endif
+           && !fx_z63_ui_page(page))return 0u;
 #else
         if(page!=PAGE)return 0u;
 #endif

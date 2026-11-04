@@ -10,10 +10,17 @@ static int ui_task(FxNativeUiDispatch *d) {
     uintptr_t task=d?atomic_load_explicit(&d->task,memory_order_acquire):0u;
     return task && task==current_task();
 }
+#ifdef FX_Z63_VIDEO
+extern int fx_z63_video_menu_visible(const FxNativePage *);
+#endif
 static int module_page(void) {
     const FxNativePage *page=((const FxNativePage *(*)(void))fx_native_ui_dispatch_profile.current_page)();
     uint32_t id=page?page->identity>>16:0u;
-    return fx_native_ui_find_page(id)!=0;
+    return fx_native_ui_find_page(id)!=0
+#ifdef FX_Z63_VIDEO
+        || fx_z63_video_menu_visible(page)
+#endif
+        ;
 }
 void fx_native_ui_capture_task(void) {
     FxNativeUiDispatch *d=fx_native_ui_dispatch_domain();if(d)fx_ui_dispatch_capture(d,current_task());

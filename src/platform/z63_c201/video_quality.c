@@ -19,6 +19,7 @@ static int lock(FxZ63VideoQuality *s) {
 static void unlock(FxZ63VideoQuality *s){FN(0x40d32f60,void (*)(void *))(s->mutex);}
 void fx_z63_video_init(FxZ63VideoQuality *s) {
     fx_video_quality_init(&s->policy);atomic_init(&s->ready,0u);atomic_init(&s->playback,0u);
+    atomic_init(&s->menu_lease,0);s->menu=0;
     FN(0x40d32e64,void (*)(void *,const char *))(s->mutex,"FXVIDEO");
     if(FN(0x40d32f98,uint32_t (*)(void *,uint32_t))(s->mutex,0u)!=1u){s->policy.fault=1u;return;}
     unlock(s);atomic_store_explicit(&s->ready,1u,memory_order_release);
@@ -116,6 +117,7 @@ FxResult fx_z63_video_resource(void *context,uint32_t op,const FxNamedBinding *b
     if(!lock(s))return FX_BUSY;
     uint32_t idle=native_idle();FxResult result=FX_ARGUMENT;
     if(op==FX_RESOURCE_DETACH || op==FX_RESOURCE_PANIC) {
+        fx_z63_video_menu_unbind(owner,token);
         result=fx_video_quality_release(&s->policy,token,idle);
         if(result==FX_OK && op==FX_RESOURCE_DETACH)*cookie=0u;
     } else if(op==FX_RESOURCE_CALL && q && a) {
@@ -125,9 +127,13 @@ FxResult fx_z63_video_resource(void *context,uint32_t op,const FxNamedBinding *b
             FxVideoQualitySelection choice;memcpy(&choice,q->data,sizeof(choice));
             if(choice.abi==FX_VIDEO_QUALITY_ABI && choice.bytes==sizeof(choice) && choice.family==FX_VIDEO_FAMILY_PRORES422)
                 result=fx_video_quality_select(&s->policy,token,choice.choice,idle);
+        } else if(q->arg[2]==FX_VIDEO_QUALITY_MENU && q->bytes==sizeof(FxVideoQualityMenu)) {
+            FxVideoQualityMenu menu;memcpy(&menu,q->data,sizeof(menu));
+            if(menu.abi==1u && menu.bytes==sizeof(menu) && !menu.reserved)
+                result=fx_z63_video_menu_bind(owner,token,menu.control);
         } else if(!q->bytes && q->arg[2]==FX_VIDEO_QUALITY_QUERY) {
             FxVideoQualityInfo info={1u,sizeof(info),FX_VIDEO_FAMILY_PRORES422,31u,
-                FX_VIDEO_QUALITY_SESSION_ONLY|FX_VIDEO_QUALITY_EXPERIMENTAL,0u};
+                FX_VIDEO_QUALITY_SESSION_ONLY|FX_VIDEO_QUALITY_EXPERIMENTAL|FX_VIDEO_QUALITY_NATIVE_MENU,0u};
             memcpy(a->data,&info,sizeof(info));a->bytes=sizeof(info);result=FX_OK;
         } else if(!q->bytes && q->arg[2]==FX_VIDEO_QUALITY_STATUS) {
             FxVideoQualityPolicy *p=&s->policy;uint32_t effective=atomic_load_explicit(&p->effective,memory_order_acquire);
@@ -137,5 +143,27 @@ FxResult fx_z63_video_resource(void *context,uint32_t op,const FxNamedBinding *b
             memcpy(a->data,&status,sizeof(status));a->bytes=sizeof(status);result=FX_OK;
         }
     }
+    unlock(s);return result;
+}
+
+FxResult fx_z63_video_menu_status(FxZ63VideoMenuLease *lease,FxVideoQualityStatus *out) {
+    FxZ63VideoQuality *s=fx_z63_menu_video();if(!s || !lease || !out)return FX_ARGUMENT;
+    if(!lock(s))return FX_BUSY;
+    FxResult result=FX_STATE;
+    if(atomic_load(&s->menu_lease)==lease && atomic_load(&lease->active) && lease->owner->phase==FX_OWNER_RUNNING) {
+        fx_video_quality_commit(&s->policy,native_idle());
+        FxVideoQualityPolicy *p=&s->policy;
+        *out=(FxVideoQualityStatus){1u,sizeof(*out),1u,p->requested,atomic_load(&p->effective),0u,
+            p->active[0],p->active[1],p->requested!=atomic_load(&p->effective) || p->retiring,atomic_load(&p->fault),p->transitions,0u};
+        result=FX_OK;
+    }
+    unlock(s);return result;
+}
+FxResult fx_z63_video_menu_select(FxZ63VideoMenuLease *lease,uint32_t choice) {
+    FxZ63VideoQuality *s=fx_z63_menu_video();if(!s || !lease)return FX_ARGUMENT;
+    if(!lock(s))return FX_BUSY;
+    FxResult result=FX_STATE;
+    if(atomic_load(&s->menu_lease)==lease && atomic_load(&lease->active) && lease->owner->phase==FX_OWNER_RUNNING)
+        result=fx_video_quality_select(&s->policy,lease->token,choice,native_idle());
     unlock(s);return result;
 }

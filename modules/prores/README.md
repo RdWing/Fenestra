@@ -1,58 +1,64 @@
-# ProRes quality modules
+# ProRes quality module
 
-The experimental Z6III C2.01 feature uses two card modules:
+The experimental Z6III C2.01 feature needs one card module: `prores.wlm`.
+It runs in managed EL0 and calls the core service `camera.video.quality`.
+The C2.01 core owns the ROM hooks, native registration and recording fence.
+The module contains no native camera addresses or firmware tables.
 
-| File | Execution | Role |
-| --- | --- | --- |
-| `prores.wlm` | Managed EL0 | Owns the page and copied selection requests. |
-| `prsnat.wlm` | Native resident | Publishes `camera.video.quality/v1` through `core.providers`. |
-
-This local integration assumes [PR #6](https://github.com/WonderLantern/Fenestra/pull/6)
+This local branch assumes [PR #6](https://github.com/WonderLantern/Fenestra/pull/6)
 at `2bbea75282b7a56d6855a33b303b35ce6f3d23d1`. It does not require an upstream
-merge. The native module uses the optional C2.01 backend in the core. That
-backend still owns the ROM hooks, native registration and recording fence.
-The card modules contain no native camera addresses or firmware tables.
+merge. The earlier `prsnat.wlm` only forwarded requests to the same backend.
+Remove that older wrapper from the emulator card when testing this branch.
 
 ## Build and start
 
 Build a core with `fenestra.py build --target z63-c201 --experimental-video`
-and the other required build arguments. Then build both modules with LLVM on
-`PATH`:
+and the other required arguments. Build the module with LLVM on `PATH`:
 
 ```sh
-python host/build_sdk_module.py modules/prores/module.c --id prores --target z63-c201 --required 0x310000 --native-stack-bytes 65536 --user-stack-bytes 65536 --output-dir build/prores-ui
-python host/build_sdk_module.py modules/prores/native.c --native --id prsnat --target z63-c201 --required 0x290000 --output-dir build/prores-native
+python host/build_sdk_module.py modules/prores/module.c --id prores --target z63-c201 --required 0x390000 --native-stack-bytes 65536 --user-stack-bytes 65536 --output-dir build/prores-ui
 ```
 
-1. Copy both WLM files into `FENESTRA/` on an emulator card.
+1. Copy `prores.wlm` into `FENESTRA/` on an emulator card.
 2. Start modules from the Fenestra menu.
 3. Open Applications, then ProRes quality.
 
-The UI can start before the provider. It shows “Load prsnat.wlm”, disables
-selection and repeats discovery. An older core shows “Requires updated core”.
-A core without the video backend shows “Requires video core”. The native
-provider reports this last condition without a module fault.
+A core without the service shows “Requires updated core” and disables selection.
+An older quality backend can still supply the app without the optional native
+menu. The app requests menu attachment only when the backend advertises it.
+
+## Native Video recording menu
+
+After module activation, open the Video recording menu. “Video quality (ProRes)”
+appears after “Video quality (N-RAW)”. The row is disabled for other formats.
+Select ProRes 422 in the original Video file type menu to enable it.
+
+The selector offers Stock, HQ, Standard, LT and Proxy. Stock restores the
+original HQ path. Both the native selector and the app use the same backend
+state. The app copies the current requested value when it polls status.
+The native row shows the requested value, or “Waiting” during a pending change.
+Back and closing either page preserve the session choice.
+
+The target adapter owns the copied menu, callbacks and reserved text IDs.
+The module supplies no native pointers. Menu attachment retains its owner and
+binding token. Stop disables that attachment before requesting Stock.
 
 ## Ownership and stop
 
-The provider starts at Stock on each boot. The first successful selection
-claims the client owner and generation. Another client receives BUSY until
-Stock becomes effective and a status request releases the claim. Read-only
-query and status requests remain available to other clients.
+The backend starts at Stock on each boot. Selection claims the binding token.
+Another binding receives BUSY until the owner releases it. A change becomes
+effective only after both native worker registrations and retirement of tracked
+jobs. Native admission must also report idle. The app's Effective row shows
+the published choice, “Waiting for idle”, or “Needs restart”. A tracking fault
+retains the last effective choice.
 
-A choice becomes effective only after both native worker registrations,
-retirement of tracked jobs and admission by the native state. The Effective
-row shows the published choice, “Waiting for idle”, or “Needs restart”. A
-tracking fault retains the last effective choice.
+Select Stock to restore the original path. During shutdown, core resource
+cleanup requests Stock and waits for native work. The core retains its hooks
+and copied UI storage until reboot. Choices apply to this session. The module
+writes no preferences or camera settings. The original Video file type menu
+still selects the recording format.
 
-Closing the page leaves both modules resident. Select Stock to restore the
-original path. During shutdown, the provider stops new calls and waits for
-active calls. Core resource cleanup then requests Stock and waits for native
-work. Code and hooks remain resident until reboot. Choices apply to this
-session. The modules write no preferences or camera settings.
-
-The native Video file type menu still selects the recording format. This
-feature joins ProRes 422 request admission, rate estimates, sample description,
+This feature joins request admission, rate estimates, sample description,
 shooting labels and playback recognition. It does not replace the encoder.
 All local builds remain emulator-only `DO_NOT_FLASH` experiments.
 
@@ -61,27 +67,29 @@ All local builds remain emulator-only `DO_NOT_FLASH` experiments.
 ```sh
 python -B -m unittest discover -s tests -v
 python -B host/verify_z63_video_hooks.py --application inputs/z63-original.bi --build build/video-core
+python -B host/verify_z63_video_menu.py --build build/video-core
 ```
 
-Host tests use the real registry and module sources with a substituted camera
-backend. They cover late discovery, owner exclusion, BUSY retries, unavailable
-services, withdrawal and deferred Stock restoration. The standalone SDK test
-builds native packages for ZR, Z9 and Z63 and executes them with synthetic APIs.
+Host tests use the actual module and service routing with a substituted camera
+backend. They cover missing services, optional menu support, owner exclusion,
+BUSY retries, pending changes, native-to-app value changes and deferred Stock
+cleanup. The independent SDK test also builds native packages for ZR, Z9 and
+Z63 against synthetic APIs. That test qualifies the framework, not this
+managed module's recording output.
 
 Linked checks compare Stock register and stack effects, the playback-label
 destination, rates, sample descriptions, shooting labels and playback consumers.
 Selected helpers or the context getter are substitutes in these checks.
 
-The full-system harness accepts `--video-test --module-count 2` with its native
-menu and UI controls. Manual startup and shutdown controls select every quality,
-restore Stock, then leave Proxy active to check shutdown. They also require one
-native start and acknowledged native stop.
-
+The full-system harness accepts `--video-test --module-count 1`.
+`--video-menu-test` adds native menu controls and requires `--video-test`.
+Video-format changes reach an unmodeled graphics command. The menu control
+explicitly uses `gfx-skip-unmodelled=on` and records that model override.
 The separate `--video-record-choice 0` through `4` controls observe native
 requests up to the strict unmodeled CODEC stop. They explicitly skip separate
 graphics gaps and report `recording_completed: false`. Restart the emulator
 after that stop. These controls do not qualify encoded video, bitrate,
-physical camera operation, update installation or failed-boot recovery.
+physical operation, update installation or failed-boot recovery.
 
 Recording controls switch directly to Movie mode. The optional
 `--video-prepare legacy-half` repeats the earlier still-half-press sequence.
