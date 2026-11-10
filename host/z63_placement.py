@@ -113,8 +113,9 @@ def guards(profile, original, hooks):
     Each guard enters the resident core only when the marker stored at the end
     of the code region is present. Otherwise it behaves as the original site:
     a function entry runs its displaced first instruction and continues, and a
-    call site reaches its original callee. x16/x17 are the only registers used;
-    both are free at a function entry and across a call.
+    call site reaches its original callee. Ordinary entry and call guards use
+    the ABI scratch registers x16/x17. Video guards preserve both registers
+    and NZCV because a video hook can be inside an original function.
     """
     base = profile['image_base']
     g0, g1 = (profile['guard_region'][name] for name in ('begin', 'end'))

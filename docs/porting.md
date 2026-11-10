@@ -66,7 +66,7 @@ Each hook branches to a small guard placed in padding inside a window's copied c
 - Marker absent, function-entry hook: run the displaced first instruction and continue at the next one.
 - Marker absent, call-site hook: branch to the original callee.
 
-A guard uses only `x16` and `x17`. That limits hooks to function entries and call sites, and the displaced instruction must not read the program counter; the build rejects other sites. The verifier rebuilds every guard from the original image and requires the candidate to contain exactly those bytes.
+Ordinary function entry and call guards use the ABI scratch registers `x16` and `x17`. The C2.01 video hooks also include interior sites. Their guards save and restore both registers and the stack pointer, and test the marker without changing NZCV. A non-call guard can replay only a position-independent displaced instruction. The verifier rebuilds every guard from the original image and checks the candidate bytes.
 
 Prove the fallback: boot an image with every hook and guard installed and the code region cleared. It must match an original boot, with no entry into the code region (`host/z63_core_absent_smoke.py`). A placement or loading mistake then costs the feature, not the boot.
 

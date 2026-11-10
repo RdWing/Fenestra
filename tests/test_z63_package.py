@@ -44,11 +44,17 @@ class Z63PackageTests(unittest.TestCase):
         self.check()
 
     def video_registration_call(self):
+        original = bytearray(self.original)
+        struct.pack_into('<I', original, 68, 0x94000004)
+        self.original = bytes(original)
+        self.profile['application_sha256'] = hashlib.sha256(self.original).hexdigest()
         self.profile['video_quality']={'hooks':[dict(address=0x4044,symbol='video_register',link=True)]}
         self.receipt.update(video=True)
         self.receipt['hooks']['0x4044']='video_register'
         self.receipt['symbols']['video_register']=0x4084
-        struct.pack_into('<I',self.candidate,68,0x94000010)
+        guard, table = guards(self.profile, self.original, {0x4040: (0x4080, False), 0x4044: (0x4084, True)})
+        self.candidate[0x100:0x100 + len(guard)] = guard
+        struct.pack_into('<I', self.candidate, 68, 0x94000000 | ((table[0x4044] - 0x4044) // 4))
 
     def test_video_registration_preserves_link_semantics(self):
         self.video_registration_call()
@@ -56,8 +62,9 @@ class Z63PackageTests(unittest.TestCase):
 
     def test_video_registration_rejects_nonlinking_branch(self):
         self.video_registration_call()
-        struct.pack_into('<I',self.candidate,68,0x14000010)
-        with self.assertRaisesRegex(ValueError,'resident symbol'):
+        word, = struct.unpack_from('<I', self.candidate, 68)
+        struct.pack_into('<I', self.candidate, 68, word & 0x7fffffff)
+        with self.assertRaisesRegex(ValueError, 'branch to its guard'):
             self.check()
 
     def test_rejects_undeclared_boot_change(self):

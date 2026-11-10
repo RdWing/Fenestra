@@ -173,8 +173,8 @@
     },
     {
       "path": "docs/porting.md",
-      "bytes": 12840,
-      "sha256": "824c2000f36209f5ea39a21eb54433a0d9daa9728cb0df795bcb07cae1a6e66f",
+      "bytes": 12956,
+      "sha256": "01df68080b1ff705568c5edd9656a39c869d9b1f0048c9208878512c932dd436",
       "origin": "authored-for-public-distribution",
       "snapshot_sha256": null,
       "transformed": true,
@@ -1213,8 +1213,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 8132,
-      "sha256": "b3dc46b1980bcd9eda08a561adc80dc7cd0a5071f7d22d879d28d9108faba6a3"
+      "bytes": 8219,
+      "sha256": "790eb49915478633b687d5a99519e0c88e037e1484f237486f81a76ea4046b79"
     },
     {
       "path": "host/z63_video.py",
@@ -5111,8 +5111,8 @@
       "transformed": true,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 4933,
-      "sha256": "99758a322a7b48b38c637f434ec157cabdc367b23c4be284e211723846c9fb8a"
+      "bytes": 5441,
+      "sha256": "5c4af97810fbe5d13a8675aacf48cd6a1198b24e0299fc6669ff81e74801dac4"
     },
     {
       "path": "tests/test_z63_placement.py",
