@@ -173,8 +173,8 @@
     },
     {
       "path": "docs/porting.md",
-      "bytes": 7642,
-      "sha256": "9041b56514648c556794cef50c7579df9650988725cc43ae6e472cafc12f18b6",
+      "bytes": 12840,
+      "sha256": "824c2000f36209f5ea39a21eb54433a0d9daa9728cb0df795bcb07cae1a6e66f",
       "origin": "authored-for-public-distribution",
       "snapshot_sha256": null,
       "transformed": true,
@@ -218,8 +218,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 15704,
-      "sha256": "6c99bca14c652a00dab9aa7913867bf817c206a81bb5b1a571d8e216b7a7cdaf"
+      "bytes": 17246,
+      "sha256": "f515da1b4bba1a6b1b374d2c67fcce937fdfd2bfa6c974a98de93292faefa812"
     },
     {
       "path": "emulation/c110_menu.ld",
@@ -268,8 +268,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 448,
-      "sha256": "2d304138761bc9abb464a9dd2bd2b1677c924bc7c972ea56f541647cbe6b0e44"
+      "bytes": 620,
+      "sha256": "31f8e394fc3afe419360b4f6779611ff23e31e37224080d75ebfa1ff7697baf0"
     },
     {
       "path": "emulation/z9_core.ld",
@@ -543,8 +543,8 @@
     },
     {
       "path": "fenestra.py",
-      "bytes": 6637,
-      "sha256": "b0c242b2baf0d5f37da989ab5b538768c0775a83e8a0c3a3a2e2dde8db509120",
+      "bytes": 6833,
+      "sha256": "f5174fa53d366d092932a75221c8bcdacefb35a954830b870fd393ec0bc15030",
       "origin": "authored-for-public-distribution",
       "snapshot_sha256": null,
       "transformed": true,
@@ -598,8 +598,8 @@
       "transformed": true,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 17594,
-      "sha256": "d4613964bc30b598c4a9b9f1bb8152c37c8a414f7e36acff0fc71910c8da9b9c"
+      "bytes": 18900,
+      "sha256": "6eaf6c881ad186b6b0393c8c42e6ce3304c4d66062a218450e4d6418564f61b8"
     },
     {
       "path": "host/build_z9_core.py",
@@ -1138,8 +1138,8 @@
       "transformed": true,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 5709,
-      "sha256": "567fbe26a40819051e4851484fc417e90540bec6aa8191d70c7264174b23c3eb"
+      "bytes": 6185,
+      "sha256": "2374d086bf6f314075531fef6190d7029199bcd1de0f09dbedadb8bbdb72c0a9"
     },
     {
       "path": "host/verify_z63_color_raw.py",
@@ -1148,8 +1148,8 @@
     },
     {
       "path": "host/verify_z63_video_hooks.py",
-      "bytes": 10839,
-      "sha256": "f56e8500da46e06c9d535f996556bc3e75f023b5966e2b626efac9cc530706ae",
+      "bytes": 13370,
+      "sha256": "89d2ea6e28892a512e75e19c57e7bc8b494508763847df0ce51ebd75852651cd",
       "origin": "authored-for-public-distribution",
       "snapshot_sha256": null,
       "transformed": false,
@@ -1163,8 +1163,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 4411,
-      "sha256": "45104eab39c394157ce45df7f4bdf8f2faf35160e39e0ca5636f8beb86ac541c"
+      "bytes": 4480,
+      "sha256": "8b70d413b0bb217c371975f4077205c55abac641f8116ed31755bfdcfb2d09d0"
     },
     {
       "path": "host/z63_bindings.py",
@@ -1177,14 +1177,24 @@
       "sha256": "d7df769542fdd922324b9b5ca5fbd31e6f5fdce20f969c642bd6132cb6bdfbbe"
     },
     {
+      "path": "host/z63_core_absent_smoke.py",
+      "origin": "authored-for-public-distribution",
+      "snapshot_sha256": null,
+      "transformed": false,
+      "license": "CC-BY-NC-SA-4.0",
+      "additional_permission": "EXCEPTIONS.md",
+      "bytes": 6359,
+      "sha256": "c2b5a014e2769a4d89a5a70e96530d70b56cf08d706ce3837c8db49700711682"
+    },
+    {
       "path": "host/z63_emulator_smoke.py",
       "origin": "authored-for-public-distribution",
       "snapshot_sha256": null,
       "transformed": true,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 89300,
-      "sha256": "dfaa19544898529b758323587564df66fbf5c1e31ded08b85b36e98344d54553"
+      "bytes": 89284,
+      "sha256": "63aafffbcb1bef458b8605690db02b43ef98cf2f2394350f08ade137eb6fd2b0"
     },
     {
       "path": "host/z63_package.py",
@@ -1193,8 +1203,18 @@
       "transformed": true,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 8532,
-      "sha256": "0de31601062cb2b33f96282cb1190d4cf60ba190765f64fe342f53558c0d26ca"
+      "bytes": 10207,
+      "sha256": "e84d010b1c51b11951e34e7f7f6358c51b9f5a2cfdc4552b9ac65d8517fb715d"
+    },
+    {
+      "path": "host/z63_placement.py",
+      "origin": "authored-for-public-distribution",
+      "snapshot_sha256": null,
+      "transformed": false,
+      "license": "CC-BY-NC-SA-4.0",
+      "additional_permission": "EXCEPTIONS.md",
+      "bytes": 8132,
+      "sha256": "b3dc46b1980bcd9eda08a561adc80dc7cd0a5071f7d22d879d28d9108faba6a3"
     },
     {
       "path": "host/z63_video.py",
@@ -3353,6 +3373,16 @@
       "sha256": "78de638d90edb68c7fa5ea73cba5fbfcf42df4c7235b6b3607f6a18867768c64"
     },
     {
+      "path": "src/platform/z63_c201/core_region.h",
+      "origin": "authored-for-public-distribution",
+      "snapshot_sha256": null,
+      "transformed": false,
+      "license": "CC-BY-NC-SA-4.0",
+      "additional_permission": "EXCEPTIONS.md",
+      "bytes": 471,
+      "sha256": "b51d8a598e97167ea8c516a456ed842f6bf2406159276f2182eb31bc37794bc8"
+    },
+    {
       "path": "src/platform/z63_c201/discovery.c",
       "origin": "authored-for-public-distribution",
       "snapshot_sha256": null,
@@ -3505,8 +3535,8 @@
       "transformed": true,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 15039,
-      "sha256": "417da30c186f62ece1ba2f4364dcb01074cea8413649e13ca09ab87b8b5417f9",
+      "bytes": 15056,
+      "sha256": "fc5e983dc18923c9fc696f82ec452796b4f76dde17f0e81e23bf7ee7b6344177",
       "source_path": "src/platform/z9_c532/module_session.c",
       "source_revision": "67774849c9dd97cc7127066190528e245ee25650"
     },
@@ -3553,8 +3583,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 14385,
-      "sha256": "cbf3a71a0d8ece0e8c082b0e5e43e63c0c03c7bf5a75e33a9e0ca4ea14c3d81a"
+      "bytes": 14402,
+      "sha256": "b22c77ab94a80f28fa032b121a65635c00675292ae15fb8ed79b4f193cc229be"
     },
     {
       "path": "src/platform/z63_c201/module_worker.h",
@@ -4831,8 +4861,8 @@
       "transformed": true,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 61864,
-      "sha256": "c23dd2feba455baecde66c444eeed91178d79068ba801c76c55ed7d8a9d0f315"
+      "bytes": 63180,
+      "sha256": "d237996d18b7ba398a688f7f83cd04801f931196bb9ae5fa2e879ded75a90f09"
     },
     {
       "path": "tests/prores_module_fixture.c",
@@ -5081,8 +5111,18 @@
       "transformed": true,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 3766,
-      "sha256": "f2c75e125654c93d19ab29789cb134c19cf7abcc3ef7e67bc78dd8d42fe63f4d"
+      "bytes": 4933,
+      "sha256": "99758a322a7b48b38c637f434ec157cabdc367b23c4be284e211723846c9fb8a"
+    },
+    {
+      "path": "tests/test_z63_placement.py",
+      "origin": "authored-for-public-distribution",
+      "snapshot_sha256": null,
+      "transformed": false,
+      "license": "CC-BY-NC-SA-4.0",
+      "additional_permission": "EXCEPTIONS.md",
+      "bytes": 5799,
+      "sha256": "fb13c95cf861622a7a1519c66946be078603d7ffe2edccdf30dfc5458e313067"
     },
     {
       "path": "tests/video_color_fixture.c",
@@ -5111,8 +5151,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 1504,
-      "sha256": "74e54eade7fdbd4fabf55b09c4c5d75109dcfef81cde893cf8b27fe94a251d57"
+      "bytes": 1502,
+      "sha256": "27ef028d5c56550489c861d78da468002cfaf70bca0f09822c82d95bfac42b74"
     },
     {
       "path": "tests/z63_card_fixture.c",

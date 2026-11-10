@@ -11,10 +11,66 @@ from unicorn import Uc,UC_ARCH_ARM64,UC_MODE_ARM,UC_HOOK_CODE
 import unicorn.arm64_const as arm
 
 
+def verify_guards(original, candidate, receipt):
+    """Compare each installed guard's two routes with the source instruction."""
+    if not receipt.get('guards'):
+        return 0
+    base = 0x40160000
+    cpu = Uc(UC_ARCH_ARM64, UC_MODE_ARM)
+    cpu.mem_map(base, (len(candidate) + 4095) & ~4095)
+    cpu.mem_write(base, candidate)
+    cpu.mem_map(0x800000, 0x20000)
+    marker = receipt['placement']['code_region'][1] - 8
+    marker_bytes = candidate[marker-base:marker-base+8]
+    regs = [getattr(arm, 'UC_ARM64_REG_X'+str(i)) for i in range(31)]
+    state_regs = [*regs, arm.UC_ARM64_REG_SP, arm.UC_ARM64_REG_NZCV]
+    initial = [0x10203040 + i*0x101 for i in range(31)] + [0x810000, 0xa0000000]
+    initial[8] = 0x800000
+
+    def execute(site, stop):
+        for register, value in zip(state_regs, initial):
+            cpu.reg_write(register, value)
+        cpu.emu_start(site, stop, count=32)
+        if cpu.reg_read(arm.UC_ARM64_REG_PC) != stop:
+            raise ValueError('video guard did not reach the expected destination')
+        return [cpu.reg_read(register) for register in state_regs]
+
+    checks = 0
+    for address, symbol in receipt['hooks'].items():
+        if not symbol.startswith(('fx_z63_video_', 'fx_z63_raw_')):
+            continue
+        site = int(address, 16)
+        stock = original[site-base:site-base+4]
+        patched = candidate[site-base:site-base+4]
+        word, = struct.unpack('<I', stock)
+        is_call = word >> 26 == 0x25
+        delta = word & 0x3ffffff
+        if delta & (1 << 25):
+            delta -= 1 << 26
+        continuation = site + delta*4 if is_call else site+4
+        cpu.mem_write(site, stock)
+        cpu.ctl_remove_cache(site, site+4)
+        expected = execute(site, continuation)
+        cpu.mem_write(site, patched)
+        cpu.ctl_remove_cache(site, site+4)
+        cpu.mem_write(marker, bytes(8))
+        if execute(site, continuation) != expected:
+            raise ValueError('video guard Stock fallback changes registers or flags: '+address)
+        cpu.mem_write(marker, marker_bytes)
+        present = initial.copy()
+        if is_call:
+            present[30] = site+4
+        if execute(site, receipt['symbols'][symbol]) != present:
+            raise ValueError('video guard changes incoming registers or flags: '+address)
+        checks += 2
+    return checks
+
+
 def verify(original,build):
     original=Path(original).read_bytes();build=Path(build)
     receipt=json.loads((build/'probe.json').read_text());symbols=receipt['symbols']
-    code=(build/'probe.bin').read_bytes();base=0x40160000;code_base=0x40910000
+    code=(build/'probe.bin').read_bytes();base=0x40160000;code_base=symbols.get('fx_z63_core_begin',0x40910000)
+    guard_checks = verify_guards(original, (build/'probe.eg.bin').read_bytes(), receipt) if receipt.get('guards') else 0
     regs=[getattr(arm,'UC_ARM64_REG_X'+str(i)) for i in range(31)]
     vectors=[getattr(arm,'UC_ARM64_REG_Q'+str(i)) for i in range(32)]
     cases=[]
@@ -151,7 +207,7 @@ def verify(original,build):
             if bytes(u.mem_read(0x901100,14)).split(b'\0')[0]!=b'ProRes 422 HQ':
                 raise ValueError('Stock playback retained an experimental clip label')
             cases.append(dict(helper='playback-stock-transition',previous_choice=choice,matched=True))
-    return dict(passed=True,cases=len(cases),assembly_cases=assembly_count,backend_cases=len(cases)-assembly_count,results=cases,
+    return dict(guard_route_checks=guard_checks,passed=True,cases=len(cases),assembly_cases=assembly_count,backend_cases=len(cases)-assembly_count,results=cases,
         qualification='Actual linked assembly with hostile helper substitutes, plus linked C consumers/original index with a substituted context getter. No native scheduling, completed recording or physical acceptance.')
 
 

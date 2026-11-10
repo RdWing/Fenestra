@@ -14,6 +14,7 @@ def verify(build):
     build = Path(build)
     report = json.loads((build / 'probe.json').read_text())
     code = (build / 'probe.bin').read_bytes()
+    code_base = report['symbols'].get('fx_z63_core_begin', 0x40910000)
     cases = []
     for kind, enabled, missing, current, expected in [
         (2, 1, False, True, 0), (0, 1, False, True, 0),
@@ -21,8 +22,8 @@ def verify(build):
         (2, 1, True, True, 2), (2, 1, False, False, 2),
     ]:
         cpu = Uc(UC_ARCH_ARM64, UC_MODE_ARM)
-        cpu.mem_map(0x40910000, (len(code) + 4095) & ~4095)
-        cpu.mem_write(0x40910000, code)
+        cpu.mem_map(code_base, (len(code) + 4095) & ~4095)
+        cpu.mem_write(code_base, code)
         cpu.mem_map(0x800000, 0x20000)
         cpu.mem_map(0x900000, 0x4000)
         cpu.mem_map(0xa00010000, 0x6000)
