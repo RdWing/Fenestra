@@ -18,8 +18,8 @@ The core calls the original row-copy routine and scales only the nominal rate
 in an eligible H.265 row. The original selector, geometry, frame rate and GOP
 fields stay in use. The linked check covers 42 eligible rows and 19 stock rows,
 including AVC and retained 8K entries. Each of the five tiers is checked against
-the original selector. The displayed percentages are target rates rather than
-measured file bitrates.
+the original selector and encoder parameter builder. The displayed percentages
+select a nominal target. File bitrate needs its own recording check.
 
 Use `host/verify_z63_h265.py` with a pinned original EG and the linked core.
 The harness runs the original selector with synthetic mode inputs and explicitly

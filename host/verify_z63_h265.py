@@ -14,6 +14,8 @@ BASE = 0x40160000
 SELECTOR = 0x402fbe64
 TAIL = 0x402fbfcc
 COPY = 0x4163b5c0
+PARAMETERS = 0x402ffe60
+PARAMETER_BYTES = 0x220
 ROWS = 0x42ac02fc
 ROW_BYTES = 36
 ROW_COUNT = 61
@@ -37,6 +39,7 @@ def verify(application, build):
     cpu.mem_write(BASE, image)
     ram = 0x10000000
     cpu.mem_map(ram, 0x40000)
+    cpu.reg_write(arm.UC_ARM64_REG_CPACR_EL1, 3 << 20)
     state, owner, cookie, request, reply, mode, out, stop = [ram+4096*i for i in range(8)]
     regs = [getattr(arm, 'UC_ARM64_REG_X'+str(i)) for i in range(8)]
     cpu.mem_map(0xa048bb000, 4096)
@@ -44,6 +47,7 @@ def verify(application, build):
     cpu.mem_map(0xa03d42000, 4096)
     tier_state = state + layout[2]
     selected_source = None
+    reading_selector = False
     file_type = 2
 
     def put(at, value):
@@ -65,6 +69,8 @@ def verify(application, build):
     def substitute(mu, pc, size, context):
         nonlocal selected_source
         if pc == COPY:
+            if not reading_selector:
+                return
             dst, src, length = (mu.reg_read(reg) for reg in regs[:3])
             if length != ROW_BYTES or not ROWS <= src < ROWS+ROW_BYTES*ROW_COUNT:
                 raise ValueError('selector copy outside original rows')
@@ -84,10 +90,23 @@ def verify(application, build):
         cpu.hook_add(UC_HOOK_CODE, substitute, begin=address, end=address)
 
     def selector(inputs):
+        nonlocal reading_selector
         cpu.mem_write(mode, struct.pack('<4I', *inputs))
         cpu.mem_write(out, b'\xa5'*64)
-        assert call(SELECTOR, mode, out+8) == out+8
+        reading_selector = True
+        try:
+            assert call(SELECTOR, mode, out+8) == out+8
+        finally:
+            reading_selector = False
         return bytes(cpu.mem_read(out, 64))
+
+    def parameters(flag, extra):
+        destination = ram + 0x9010
+        cpu.mem_write(destination-16, b'\xa5'*(PARAMETER_BYTES+32))
+        call(PARAMETERS, out+8, flag, extra, destination)
+        assert bytes(cpu.mem_read(destination-16, 16)) == b'\xa5'*16
+        assert bytes(cpu.mem_read(destination+PARAMETER_BYTES, 16)) == b'\xa5'*16
+        return bytes(cpu.mem_read(destination, PARAMETER_BYTES))
 
     def resource(op, selection=None):
         cpu.mem_write(request, bytes(816))
@@ -118,18 +137,42 @@ def verify(application, build):
     put(0xa03d42100, 2)
     assert resource(3, 1) == 0 and effective() == 1
     eligible_rows = 0
+    stock_parameters = {}
+    parameter_cases = 0
+    uhd10_targets = []
+    uhd10_nominal = []
     for tier, percent in enumerate(PERCENT):
         assert resource(3, tier) == 0 and effective() == tier
         eligible_rows = 0
         for index, (inputs, stock) in samples.items():
             expected = bytearray(stock)
             codec, dimensions = struct.unpack_from('<2I', stock, 8)
-            if codec == 1 and dimensions >> 16 in (1920, 3840, 5376):
+            eligible = codec == 1 and dimensions >> 16 in (1920, 3840, 5376)
+            if eligible:
                 eligible_rows += 1
                 nominal, = struct.unpack_from('<I', stock, 36)
                 struct.pack_into('<I', expected, 36, nominal*percent//100)
             if selector(inputs) != expected or selected_source != ROWS+index*ROW_BYTES:
                 raise ValueError(f'H.265 selector mismatch for tier {tier}, row {index}')
+            if not eligible:
+                continue
+            rate, = struct.unpack_from('<I', expected, 36)
+            for flag, extra in itertools.product((0, 1), (0, ram+0xb000)):
+                block = parameters(flag, extra)
+                assert bytes(cpu.mem_read(out, 64)) == expected
+                target, = struct.unpack_from('<I', block, 0x18)
+                assert target == rate//1200
+                key = index, flag, extra
+                if tier == 0:
+                    stock_parameters[key] = block
+                stock_block = stock_parameters[key]
+                assert block[:0x18] == stock_block[:0x18]
+                assert block[0x1c:0x24] == stock_block[0x1c:0x24]
+                assert block[0x28:] == stock_block[0x28:]
+                if index == 49 and flag == 0 and extra == 0:
+                    uhd10_targets.append(target)
+                    uhd10_nominal.append(rate)
+                parameter_cases += 1
     assert eligible_rows == 42
     put(tier_state+layout[6], 1)
     assert resource(2) == 5 and effective() == 4
@@ -138,6 +181,9 @@ def verify(application, build):
     return dict(passed=True, candidate_sha256=receipt['candidate_sha256'],
                 selector_cases=ROW_COUNT*len(PERCENT), eligible_rows=eligible_rows,
                 preserved_rows=ROW_COUNT-eligible_rows, wrong_mode_refusals=6,
+                encoder_parameter_cases=parameter_cases,
+                uhd_2997_10bit_parameter_words=uhd10_targets,
+                uhd_2997_10bit_nominal_bps=uhd10_nominal,
                 idle_publication=True, deferred_stock_retirement=True,
                 qualification='Linked selector and service with substituted copy leaf, mutex, context and setting reads.')
 

@@ -1153,8 +1153,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 6264,
-      "sha256": "bf30884fbf0a12841916a035451a0368ede6acfc37d162f89779baba19fa28b6"
+      "bytes": 8266,
+      "sha256": "91c215a8709f25360908278723e32fc8902b9b2acd7ce3d8aef42496e59728b3"
     },
     {
       "path": "host/verify_z63_video_hooks.py",
@@ -2658,8 +2658,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 1575,
-      "sha256": "8b7868f3ded63a3c46e8802e50666585e55c0f2f95980820045e8a03bf9c0c53"
+      "bytes": 1621,
+      "sha256": "1d66213566ac92a5e4987f76f9c384e246cf952a7391eaeb9ba383124989fcec"
     },
     {
       "path": "modules/h265/module.c",
