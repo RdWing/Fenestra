@@ -148,10 +148,13 @@ def main():
     parser.add_argument('--demo-test',action='store_true',help='exercise the bundled character-rain module, native Back/blur and reopen')
     parser.add_argument('--video-menu-test',action='store_true',help='check the native Video quality (ProRes) row and its shared state')
     parser.add_argument('--video-test',action='store_true',help='exercise the ProRes module choice page and deferred native publication')
+    parser.add_argument('--h265-test',action='store_true',help='use the H.265 app and bitrate policy for the video selection control')
     parser.add_argument('--video-prepare',choices=('direct','legacy-half'),default='direct',help='recording control: switch directly to Movie, or reproduce the earlier still-half-press sequence')
     parser.add_argument('--video-record-choice',type=int,choices=range(5),help='video test: select one quality and observe native recording admission up to the expected strict codec-model stop')
     parser.add_argument('--expect', choices=('success', 'fault', 'rejected', 'sdk', 'services', 'runtime', 'ui', 'timeout', 'files', 'mapping', 'global'), default='success')
     args = parser.parse_args()
+    if args.h265_test and (not args.video_test or args.video_menu_test or args.video_record_choice is not None or args.module_count!=1):
+        parser.error('--h265-test requires one module and the video selection control')
     if args.panic_test and (not args.native_menu_test or args.expect!='fault'):
         parser.error('--panic-test requires --native-menu-test --expect fault')
     if args.panic_peer_test and (not args.panic_test or args.module_count!=2):
@@ -521,8 +524,13 @@ def main():
                         if args.video_test:
                             image=application.read_bytes();base=0x40160000
                             meta=struct.unpack_from('<9I',image,symbols['fx_z63_video_layout']-base)
+                            policy_offset=meta[3]
+                            if args.h265_test:
+                                h265_layout=struct.unpack_from('<7I',image,symbols['fx_z63_h265_layout']-base)
+                                if h265_layout[:2]!=(0x46584835,1):raise RuntimeError('H.265 policy layout differs')
+                                policy_offset=h265_layout[2]
                             def video_state():
-                                policy=read64(0xa02912e10+80)+meta[2]+meta[3]
+                                policy=read64(0xa02912e10+80)+meta[2]+policy_offset
                                 def u32(at):return (read64((policy+at)&~7)>>(((policy+at)&7)*8))&0xffffffff
                                 return dict(effective=u32(meta[4]),requested=u32(meta[5]),registered=u32(meta[6]),
                                     movie=u32(meta[7]),capture=u32(meta[7]+4),fault=u32(meta[8]))
@@ -543,7 +551,8 @@ def main():
                                 else:raise RuntimeError('Video quality not published: '+repr(state))
                                 cursor=selected;selections.append(state)
                                 qmp('screendump',{'filename':str(out/('video-choice-'+str(selected)+'.ppm'))})
-                            video_result=dict(initial=initial,selections=selections,stock_restored=0 in choices,passed=True)
+                            video_result=dict(family='h265' if args.h265_test else 'prores422',
+                                initial=initial,selections=selections,stock_restored=0 in choices,passed=True)
                             (out/'video-quality.json').write_text(json.dumps(video_result,indent=2)+'\n')
                         if args.demo_test:
                             image=application.read_bytes();base=0x40160000

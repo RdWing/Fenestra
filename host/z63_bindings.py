@@ -48,6 +48,7 @@ def generate(profile, original, out):
     lines+=['#ifdef FX_Z63_VIDEO',
             '{"camera.video.quality",FX_BIND_DEVICE,FX_CALL_DEVICE,1,FX_BIND_PROVIDER,FX_SDK_NATIVE,0,(uintptr_t)fx_z63_video_resource,{0}},',
             '{"camera.video.color",FX_BIND_DEVICE,FX_CALL_DEVICE,1,FX_BIND_PROVIDER,FX_SDK_NATIVE,0,(uintptr_t)fx_z63_color_resource,{0}},',
+            '{"camera.video.h265",FX_BIND_DEVICE,FX_CALL_DEVICE,1,FX_BIND_PROVIDER,FX_SDK_NATIVE,0,(uintptr_t)fx_z63_h265_resource,{0}},',
             '{"camera.video.raw",FX_BIND_DEVICE,FX_CALL_DEVICE,1,FX_BIND_PROVIDER,FX_SDK_NATIVE,0,(uintptr_t)fx_z63_raw_resource,{0}},',
             '#endif']
     lines += ['};', '#define FX_TARGET_IDENTITY {'+','.join(map(str,bytes.fromhex(profile['application_sha256'])))+'}',

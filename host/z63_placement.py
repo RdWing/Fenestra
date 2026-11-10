@@ -113,7 +113,8 @@ def guards(profile, original, hooks):
     Each guard enters the resident core only when the marker stored at the end
     of the code region is present. Otherwise it behaves as the original site:
     a function entry runs its displaced first instruction and continues, and a
-    call site reaches its original callee. Ordinary entry and call guards use
+    call site or a declared tail branch reaches its original callee. Ordinary
+    entry and call guards use
     the ABI scratch registers x16/x17. Video guards preserve both registers
     and NZCV because a video hook can be inside an original function.
     """
@@ -124,7 +125,7 @@ def guards(profile, original, hooks):
         raise ValueError('marker is not aligned')
     out = bytearray(MARKER)
     table = {}
-    video_sites = {row['address'] for row in profile.get('video_quality', {}).get('hooks', [])}
+    video_hooks = {row['address']: row for row in profile.get('video_quality', {}).get('hooks', [])}
     for site in sorted(hooks):
         target, call = hooks[site]
         stub = g0 + len(out)
@@ -134,22 +135,23 @@ def guards(profile, original, hooks):
             raise ValueError('marker out of ADRP range')
         adrp = 0x90000010 | ((page & 3) << 29) | (((page >> 2) & 0x7ffff) << 5)
         load = 0xf9400210 | (((marker & 0xfff) // 8) << 10)
-        if call:
-            if word >> 26 != 0x25:
-                raise ValueError('call hook site is not an original BL')
+        tail = video_hooks.get(site, {}).get('tail', False)
+        if call or tail:
+            if word >> 26 != (0x25 if call else 5) or (call and tail):
+                raise ValueError('original call or tail branch opcode differs')
             delta = word & 0x3ffffff
             callee = site + ((delta - (1 << 26) if delta & (1 << 25) else delta) * 4)
         elif not position_independent(word):
             raise ValueError('hook site instruction cannot be displaced')
 
-        if site in video_sites:
+        if site in video_hooks:
             # The video hooks include interior branches, where both scratch
             # registers and condition flags can be live. EOR/CBNZ test the
             # marker without changing NZCV. Both paths restore x16/x17 and SP.
             literal = 0x58000011 | ((((g0 - (stub + 12)) // 4) & 0x7ffff) << 5)
             words = [0xa9bf47f0, adrp, load, literal, 0xca110210, 0xb5000070,
                      0xa8c147f0, _branch(stub + 28, target), 0xa8c147f0]
-            words += ([_branch(stub + 36, callee), 0xd4200000] if call else
+            words += ([_branch(stub + 36, callee), 0xd4200000] if call or tail else
                       [word, _branch(stub + 40, site + 4)])
         else:
             literal = 0x58000011 | ((((g0 - (stub + 8)) // 4) & 0x7ffff) << 5)

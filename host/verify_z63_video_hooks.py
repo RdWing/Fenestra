@@ -37,7 +37,7 @@ def verify_guards(original, candidate, receipt):
 
     checks = 0
     for address, symbol in receipt['hooks'].items():
-        if not symbol.startswith(('fx_z63_video_', 'fx_z63_raw_')):
+        if not symbol.startswith(('fx_z63_video_', 'fx_z63_raw_', 'fx_z63_h265_')):
             continue
         site = int(address, 16)
         stock = original[site-base:site-base+4]
@@ -47,7 +47,7 @@ def verify_guards(original, candidate, receipt):
         delta = word & 0x3ffffff
         if delta & (1 << 25):
             delta -= 1 << 26
-        continuation = site + delta*4 if is_call else site+4
+        continuation = site + delta*4 if word >> 26 in (5, 0x25) else site+4
         cpu.mem_write(site, stock)
         cpu.ctl_remove_cache(site, site+4)
         expected = execute(site, continuation)

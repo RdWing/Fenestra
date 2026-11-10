@@ -1692,6 +1692,14 @@
         "sha256": "38e8798c497a7d6ef70d9240317e64f3b23d3e707e6ec995139e3485a28da08e",
         "symbol": "fx_z63_raw_extension",
         "link": false
+      },
+      {
+        "name": "h265_selector_tail",
+        "address": 1076871116,
+        "bytes": 4,
+        "sha256": "c9610a1aafec60dce1705e00e78f9ea31e15f06026640903bb33ca9abfec4d08",
+        "symbol": "fx_z63_h265_select_tail",
+        "tail": true
       }
     ],
     "dependencies": [
@@ -1778,6 +1786,12 @@
         "address": 1091172440,
         "bytes": 368,
         "sha256": "178dfc07ccb604ef383a92d4d82cc792c7739e3f3b0721f90f053f65e8c6f02a"
+      },
+      {
+        "name": "h265_rate_rows",
+        "address": 1118569212,
+        "bytes": 2196,
+        "sha256": "1a9dc170c4ece2b1456e504c9574320b83409b6c5ec819cf9f94c5ed0cd63be5"
       }
     ],
     "original_entries": [

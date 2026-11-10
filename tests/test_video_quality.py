@@ -8,11 +8,17 @@ ROOT=Path(__file__).resolve().parents[1]
 
 class VideoQualityTests(unittest.TestCase):
     def test_prores_app_ui_selection_retry_and_missing_service(self):
+        self.check_quality_app([])
+
+    def test_h265_app_mode_refusal_selection_and_retirement(self):
+        self.check_quality_app(['-DFX_H265_APP=1'])
+
+    def check_quality_app(self, flags):
         cc=shutil.which('clang') or shutil.which('cc')
         if not cc:self.skipTest('C compiler unavailable')
         with tempfile.TemporaryDirectory() as tmp:
             binary=Path(tmp)/'prores-module'
-            subprocess.run([cc,'-std=c11','-Wall','-Wextra','-Werror','-Wconversion','-Wshadow',
+            subprocess.run([cc,'-std=c11','-Wall','-Wextra','-Werror','-Wconversion','-Wshadow',*flags,
                 '-I',str(ROOT/'include'),*[str(ROOT/p) for p in ['tests/prores_module_fixture.c',
                     'src/video_quality.c','src/platform.c','src/binding_store.c','src/native_call.c','src/accounting.c',
                     'src/services.c','src/module.c','src/sha256.c','src/memory.c','src/extensions.c','src/stream.c']],'-o',str(binary)],check=True)

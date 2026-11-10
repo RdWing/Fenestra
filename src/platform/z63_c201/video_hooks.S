@@ -140,4 +140,9 @@ fx_z63_video_parser_hook:
  b fx_z63_video_parse_reject
 3:
  b fx_z63_video_parse_accept
+/* The selector tail carries the selected row index in x8. */
+.global fx_z63_h265_select_tail
+fx_z63_h265_select_tail:
+ mov x3,x8
+ b fx_z63_h265_copy
 .include "z63_video_original.inc"
