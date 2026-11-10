@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "target": "z63-c201",
+  "payload_sha256": "236bbd874e0942fd91fb54a99af456f4ebcc0fd966af930753c43efd1839fe87",
+  "image_base": 1075183616,
+  "evidence": "Original static recovery, original callback execution and linked RAW hook execution with synthetic native inputs. No full firmware boot or physical experiment.",
+  "bindings": [
+    {
+      "name": "raw_description",
+      "address": 1087307804,
+      "bytes": 560,
+      "sha256": "10f5012f5ae0e8aa7a9602e95d53bf742ffc9111e1bb592fbb61df2bb0f2506b"
+    },
+    {
+      "name": "raw_template0",
+      "address": 1119294778,
+      "bytes": 86,
+      "sha256": "9ed0d122480b974d7fcd116917bd1b3891ec51eca562118174e1883d06ee9daa"
+    },
+    {
+      "name": "raw_template12",
+      "address": 1119294864,
+      "bytes": 86,
+      "sha256": "9ed0d122480b974d7fcd116917bd1b3891ec51eca562118174e1883d06ee9daa"
+    },
+    {
+      "name": "color_tag_selector",
+      "address": 1077215968,
+      "bytes": 80,
+      "sha256": "362d4fc7391449a77bbbf455d57a1922e50ea730a6381b9eb8ddca7679604acc"
+    },
+    {
+      "name": "frame_metadata_descriptors",
+      "address": 1142695960,
+      "bytes": 320,
+      "sha256": "6dc95a967b70f9ee06fb0d6237c948a2aac736e2fd3469d35d8a9a1b609618b4"
+    },
+    {
+      "name": "frame_matrix",
+      "address": 1091172440,
+      "bytes": 368,
+      "sha256": "178dfc07ccb604ef383a92d4d82cc792c7739e3f3b0721f90f053f65e8c6f02a"
+    },
+    {
+      "name": "frame_color_profile",
+      "address": 1091172304,
+      "bytes": 136,
+      "sha256": "2ee08281799c0b3a46352e00bb0a088b031a4f58a11fa7252d01b889f7a57c0d"
+    },
+    {
+      "name": "frame_matrix_prefix",
+      "address": 1142696688,
+      "bytes": 32,
+      "sha256": "9f8116a6cf34981909200bce1b46f9b0ae9731091c495dad2b821e88e71a17fb"
+    },
+    {
+      "name": "gamma_name_source",
+      "address": 1142768748,
+      "bytes": 20,
+      "sha256": "8c7cb8cc5a08e400dfcf8135ffb55aae28a1e8b6510100d9ef8b365c48eff2fa"
+    },
+    {
+      "name": "color_metadata_setter",
+      "address": 1087303904,
+      "bytes": 136,
+      "sha256": "a97dd2d45e103d411e723d8b4c35385be4e27decd0a60b97d5e51d80951416dd"
+    },
+    {
+      "name": "nev_extension",
+      "address": 1082901956,
+      "bytes": 20,
+      "sha256": "38e8798c497a7d6ef70d9240317e64f3b23d3e707e6ec995139e3485a28da08e"
+    },
+    {
+      "name": "frame_color_profile_body",
+      "address": 1092130500,
+      "bytes": 336,
+      "sha256": "5508c13fff2ca1759d77f47d9ccb89ddfdbccab864850a3e3172a8b9453cd353"
+    }
+  ],
+  "description_callers": [
+    1077225236,
+    1087485980,
+    1087500436
+  ],
+  "nrmt_matrix_descriptor_index": 18,
+  "nrmt_matrix_tag": 26214418,
+  "matrix_output_bytes": 37,
+  "metadata_descriptor_count": 20,
+  "metadata_header_bytes": 1024
+}

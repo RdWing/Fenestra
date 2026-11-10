@@ -1648,6 +1648,30 @@
         "sha256": "27121cf1926c8f4d6123066fedb7df1be2f9e0d15886b5f9bd16da6393180d4a",
         "symbol": "fx_z63_video_register_movie",
         "link": true
+      },
+      {
+        "name": "raw_template",
+        "address": 1087308032,
+        "bytes": 4,
+        "sha256": "b222bca74f87636b601a794db38af6929b51eb31b71c1de27d3bb037c50f7163",
+        "symbol": "fx_z63_raw_template_copy",
+        "link": true
+      },
+      {
+        "name": "raw_matrix",
+        "address": 1091172440,
+        "bytes": 4,
+        "sha256": "6dbf0a692f3fd3345763a271ba56b3e466aee3b860a2668d9f6774eb22ffa349",
+        "symbol": "fx_z63_raw_matrix",
+        "link": false
+      },
+      {
+        "name": "raw_extension",
+        "address": 1082901956,
+        "bytes": 20,
+        "sha256": "38e8798c497a7d6ef70d9240317e64f3b23d3e707e6ec995139e3485a28da08e",
+        "symbol": "fx_z63_raw_extension",
+        "link": false
       }
     ],
     "dependencies": [
@@ -1716,6 +1740,24 @@
         "address": 1087514188,
         "bytes": 56,
         "sha256": "883524222f27200b006c4ef4bc2a0a9fc8e2ace212b87ed541f018b5450cbf6d"
+      },
+      {
+        "name": "raw_templates",
+        "address": 1119294778,
+        "bytes": 172,
+        "sha256": "1cee042666d5e2244c3b0a6ebe7c976aa5830d1aeac19c11ff1f23c85790c79d"
+      },
+      {
+        "name": "raw_matrix_constant",
+        "address": 1142696688,
+        "bytes": 32,
+        "sha256": "9f8116a6cf34981909200bce1b46f9b0ae9731091c495dad2b821e88e71a17fb"
+      },
+      {
+        "name": "raw_matrix_body",
+        "address": 1091172440,
+        "bytes": 368,
+        "sha256": "178dfc07ccb604ef383a92d4d82cc792c7739e3f3b0721f90f053f65e8c6f02a"
       }
     ],
     "original_entries": [
@@ -1747,6 +1789,11 @@
         "name": "play_stock",
         "address": 1080542416,
         "bytes": 132
+      },
+      {
+        "name": "raw_matrix",
+        "address": 1091172440,
+        "bytes": 4
       }
     ],
     "returns": {

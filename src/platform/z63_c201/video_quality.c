@@ -18,7 +18,7 @@ static int lock(FxZ63VideoQuality *s) {
 }
 static void unlock(FxZ63VideoQuality *s){FN(0x40d32f60,void (*)(void *))(s->mutex);}
 void fx_z63_video_init(FxZ63VideoQuality *s) {
-    fx_video_quality_init(&s->policy);atomic_init(&s->ready,0u);atomic_init(&s->playback,0u);
+    fx_video_quality_init(&s->policy);fx_video_quality_init(&s->raw);atomic_init(&s->ready,0u);atomic_init(&s->playback,0u);
     atomic_init(&s->menu_lease,0);s->menu=0;
     FN(0x40d32e64,void (*)(void *,const char *))(s->mutex,"FXVIDEO");
     if(FN(0x40d32f98,uint32_t (*)(void *,uint32_t))(s->mutex,0u)!=1u){s->policy.fault=1u;return;}
@@ -27,15 +27,16 @@ void fx_z63_video_init(FxZ63VideoQuality *s) {
 static FxZ63VideoQuality *enter(uint32_t domain,uint32_t acknowledge) {
     FxZ63VideoQuality *s=fx_z63_menu_video();
     if(s && !lock(s)) { /* No untracked native admission may look idle. */
-        atomic_store_explicit(&s->policy.fault,1u,memory_order_release);return 0;
+        atomic_store_explicit(&s->policy.fault,1u,memory_order_release);atomic_store(&s->raw.fault,1u);return 0;
     }
-    if(s){fx_video_quality_enter(&s->policy,domain,acknowledge,native_idle());unlock(s);}
+    if(s){if(atomic_load(&s->policy.fault))atomic_store(&s->raw.fault,1u);fx_video_quality_enter(&s->policy,domain,acknowledge,native_idle());fx_video_quality_enter(&s->raw,domain,acknowledge,native_idle());unlock(s);}
     return s;
 }
 static void leave(FxZ63VideoQuality *s,uint32_t domain) {
     if(!s)return;
-    if(!lock(s)){atomic_store_explicit(&s->policy.fault,1u,memory_order_release);return;}
-    fx_video_quality_leave(&s->policy,domain,native_idle());unlock(s);
+    if(!lock(s)){atomic_store_explicit(&s->policy.fault,1u,memory_order_release);atomic_store(&s->raw.fault,1u);return;}
+    if(atomic_load(&s->policy.fault))atomic_store(&s->raw.fault,1u);
+    fx_video_quality_leave(&s->policy,domain,native_idle());fx_video_quality_leave(&s->raw,domain,native_idle());unlock(s);
 }
 static uint64_t registration(void *object,uintptr_t callback,uint32_t mask,void *config,
     uint32_t domain,uintptr_t expected_object,uintptr_t expected_callback,uint32_t expected_mask) {
@@ -126,7 +127,7 @@ FxResult fx_z63_video_resource(void *context,uint32_t op,const FxNamedBinding *b
         else if(q->arg[2]==FX_VIDEO_QUALITY_SELECT && q->bytes==sizeof(FxVideoQualitySelection)) {
             FxVideoQualitySelection choice;memcpy(&choice,q->data,sizeof(choice));
             if(choice.abi==FX_VIDEO_QUALITY_ABI && choice.bytes==sizeof(choice) && choice.family==FX_VIDEO_FAMILY_PRORES422)
-                result=fx_video_quality_select(&s->policy,token,choice.choice,idle);
+                result=choice.choice && (s->raw.requested || atomic_load(&s->raw.effective))?FX_BUSY:fx_video_quality_select(&s->policy,token,choice.choice,idle);
         } else if(q->arg[2]==FX_VIDEO_QUALITY_MENU && q->bytes==sizeof(FxVideoQualityMenu)) {
             FxVideoQualityMenu menu;memcpy(&menu,q->data,sizeof(menu));
             if(menu.abi==1u && menu.bytes==sizeof(menu) && !menu.reserved)
@@ -164,6 +165,71 @@ FxResult fx_z63_video_menu_select(FxZ63VideoMenuLease *lease,uint32_t choice) {
     if(!lock(s))return FX_BUSY;
     FxResult result=FX_STATE;
     if(atomic_load(&s->menu_lease)==lease && atomic_load(&lease->active) && lease->owner->phase==FX_OWNER_RUNNING)
-        result=fx_video_quality_select(&s->policy,lease->token,choice,native_idle());
+        result=choice && (s->raw.requested || atomic_load(&s->raw.effective))?FX_BUSY:fx_video_quality_select(&s->policy,lease->token,choice,native_idle());
     unlock(s);return result;
+}
+
+/* RAW compatibility uses the same registration, admission mutex and active
+ * counters as ProRes. No feature changes the encoder or capture gain. */
+#include "fenestra_video_color.h"
+FxResult fx_z63_raw_resource(void *context,uint32_t op,const FxNamedBinding *binding,
+    FxPlatformOwner *owner,uint64_t token,uint64_t *cookie,const FxServiceRequest *q,FxServiceReply *a) {
+    (void)context;(void)binding;
+    if(!owner || !token || !cookie)return FX_ARGUMENT;
+    FxZ63VideoQuality *s=fx_z63_menu_video();if(!s)return FX_STATE;
+    if(op==FX_RESOURCE_ATTACH){if(!atomic_load_explicit(&s->ready,memory_order_acquire))return FX_STATE;*cookie=token;return FX_OK;}
+    if(*cookie!=token)return FX_STALE;
+    if(!lock(s))return FX_BUSY;
+    uint32_t idle=native_idle();FxVideoQualityPolicy *p=&s->raw;
+    if(atomic_load(&s->policy.fault))atomic_store(&p->fault,1u);
+    fx_video_quality_commit(p,idle);FxResult result=FX_ARGUMENT;
+    if(op==FX_RESOURCE_DETACH || op==FX_RESOURCE_PANIC) {
+        result=fx_video_quality_release(p,token,idle);
+        if(result==FX_OK)*cookie=0u;
+    } else if(op==FX_RESOURCE_CALL && q && a && !q->arg[3]) {
+        if(q->arg[2]==FX_VIDEO_QUALITY_QUERY && !q->bytes) {
+            FxVideoQualityInfo info={1u,sizeof(info),FX_VIDEO_FAMILY_RAW,3u,
+                FX_VIDEO_QUALITY_SESSION_ONLY|FX_VIDEO_QUALITY_EXPERIMENTAL,0u};
+            memcpy(a->data,&info,sizeof(info));a->bytes=sizeof(info);result=FX_OK;
+        } else if(q->arg[2]==FX_VIDEO_QUALITY_STATUS && !q->bytes) {
+            FxVideoQualityStatus info={1u,sizeof(info),FX_VIDEO_FAMILY_RAW,p->requested,
+                atomic_load(&p->effective),p->registered==3u && idle && !p->active[0] && !p->active[1] && !p->fault,
+                p->active[0],p->active[1],p->requested!=atomic_load(&p->effective)||p->retiring,
+                atomic_load(&p->fault),p->transitions,0u};
+            memcpy(a->data,&info,sizeof(info));a->bytes=sizeof(info);result=FX_OK;
+        } else if(q->arg[2]==FX_VIDEO_QUALITY_SELECT && q->bytes==sizeof(FxVideoQualitySelection)) {
+            FxVideoQualitySelection sel;memcpy(&sel,q->data,sizeof(sel));
+            if(sel.abi==1u && sel.bytes==sizeof(sel) && sel.family==FX_VIDEO_FAMILY_RAW && sel.choice<=1u) {
+                if(sel.choice && FN(0x403ffcd0,uint32_t (*)(uint32_t))(UINT32_C(0x06000f06))!=6u)result=FX_STATE;
+                else if(sel.choice && (s->policy.requested || atomic_load(&s->policy.effective)))result=FX_BUSY;
+                else result=fx_video_quality_select(p,token,sel.choice,idle);
+            }
+        } else if(q->arg[2]==FX_VIDEO_QUERY_PATH && q->bytes==4u) {
+            uint32_t path;memcpy(&path,q->data,4u);
+            if(path<FX_VIDEO_PATH_COUNT) {
+                FxVideoPathInfo info={1u,sizeof(info),path,path==FX_VIDEO_PATH_NRAW,
+                    path==FX_VIDEO_PATH_NRAW?FX_VIDEO_REASON_NONE:FX_VIDEO_REASON_WRITER_JOIN,1u,0u,0u};
+                memcpy(a->data,&info,sizeof(info));a->bytes=sizeof(info);result=FX_OK;
+            }
+        } else result=FX_CAPABILITY;
+    }
+    unlock(s);return result;
+}
+uint32_t fx_z63_raw_code(void) {
+    FxZ63VideoQuality *s=fx_z63_menu_video();return s?atomic_load_explicit(&s->raw.effective,memory_order_acquire):0u;
+}
+extern uint32_t fx_z63_video_raw_matrix_original(void *,void *);
+uint32_t fx_z63_raw_matrix(void *context,void *out) {
+    if(!fx_z63_raw_code())return fx_z63_video_raw_matrix_original(context,out);
+    memcpy(out,fx_z63_raw_matrix_bytes,sizeof(fx_z63_raw_matrix_bytes));return sizeof(fx_z63_raw_matrix_bytes);
+}
+const char *fx_z63_raw_extension(void) {
+    return fx_z63_raw_code()?"R3D":(const char *)(uintptr_t)UINT64_C(0x442763dc);
+}
+uintptr_t fx_z63_raw_template_copy(void *out,const void *source,uint32_t bytes) {
+    if(fx_z63_raw_code() && bytes==86u) {
+        if((uintptr_t)source==UINT64_C(0x42b7153a))source=fx_z63_raw_templates[0];
+        else if((uintptr_t)source==UINT64_C(0x42b71590))source=fx_z63_raw_templates[1];
+    }
+    return FN(0x40ce5c60,uintptr_t (*)(void *,const void *,uint32_t))(out,source,bytes);
 }

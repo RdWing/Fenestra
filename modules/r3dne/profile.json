@@ -1,0 +1,111 @@
+{
+  "schema": "fenestra.r3dne-matrix-profile/v1",
+  "profile": "zr-r3dne-metadata-6ee37b7",
+  "status": "Experimental metadata profile. DO_NOT_FLASH.",
+  "target": {
+    "camera": "Nikon Z6III",
+    "firmware": "C2.01",
+    "recording": "internal N-RAW encoder"
+  },
+  "external_source": {
+    "repository": "https://github.com/redn3/blue-compressor",
+    "commit": "6ee37b7bb95074592c8989a96eaafc7ab4c23a51",
+    "path": "crates/core/src/r3d.rs",
+    "git_blob_sha1": "53b56c8f18f39601b93e41bf7e9966b59f375ebe",
+    "file_sha256": "fabcab4da6e5a8bf0ad328046554df369a798f0e6604f9a77a6053c61c30cb16",
+    "constant": "R3D_MATRIX",
+    "lines": [
+      355,
+      361
+    ],
+    "license": "Apache-2.0",
+    "reuse": "Matrix constants only. No external conversion code is used in the native callback.",
+    "license_files": {
+      "licenses/blue-compressor.LICENSE": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+      "licenses/blue-compressor.NOTICE": "4aedfd653d6342a6898cc802606f843f2ac7e06f5d2fc8170365db51bf9abc3c"
+    }
+  },
+  "matrix": {
+    "nrmt_tag": "0x01900012",
+    "bytes": 37,
+    "leading_byte": 0,
+    "leading_byte_meaning": "Unresolved. Exact source value retained.",
+    "encoding": "One leading byte, then nine big-endian IEEE-754 binary32 coefficients.",
+    "layout": "row-major",
+    "hex": "003f14d5fa3e7a88273dfec56d3e50efdd3f74f56fbe24c597bd3de3fcbeb277c43fbdf30e",
+    "sha256": "69ea56695435e553b8d3eebae0cc2b488306564f536f2c04ca73585e51431193",
+    "coefficients": [
+      0.5813900232315063,
+      0.24466000497341156,
+      0.12439999729394913,
+      0.20404000580310822,
+      0.9568700194358826,
+      -0.1609099954366684,
+      -0.04636000096797943,
+      -0.34856998920440674,
+      1.4839799404144287
+    ],
+    "unit_input_mapping_xyz": [
+      0.950450025498867,
+      1.0000000298023224,
+      1.0890499502420425
+    ],
+    "direction_claim": "Camera RGB to XYZ",
+    "white_point_claim": "D65",
+    "claim_source": "Pinned external source comments and neutral-mapping test.",
+    "target_calibration_qualified": false
+  },
+  "native_binding": {
+    "firmware_sha256": "236bbd874e0942fd91fb54a99af456f4ebcc0fd966af930753c43efd1839fe87",
+    "callback": "0x4109f858",
+    "wrapper": "fx_z63_raw_matrix",
+    "metadata_descriptor_index": 18,
+    "metadata_helper_mode": 4,
+    "active_behavior": "Each admitted callback copies all 37 profile bytes and returns 37.",
+    "stock_behavior": "Call the displaced original callback."
+  },
+  "policy": {
+    "camera_identity": "Preserve the actual camera model and firmware.",
+    "raw_samples": "Preserve the compressed RAW payload.",
+    "capture_gain": "Stock firmware policy. No exposure offset.",
+    "exposure_correction_ev": 0.0,
+    "automatic_exposure_correction": false,
+    "write_rmd_sidecar": false,
+    "ei_available": false,
+    "monitoring_and_proxies": "Stock firmware processing.",
+    "dynamic_metadata": "Keep original producers. Do not copy unexplained RED fields as constants."
+  },
+  "offline_reference": {
+    "source_firmware": "C2.00",
+    "source_sha256": "0c8e52f603cfc8c88a18a5c69bca08a9f5a04abfed9e6165eb54fd1688e6cab8",
+    "output_sha256": "eaefe5c995be9e8072767f3dfa9addbeb041cdeb4b323c0ced7239dddae014ee",
+    "frames": 141,
+    "matrix_frames_exact": 141,
+    "audio_samples": 225824,
+    "other_frame_tags_unchanged": true,
+    "nctg_unchanged": true,
+    "identity": {
+      "model": "NIKON Z6_3",
+      "firmware": "NIKON Z6_3 Ver.02.00",
+      "iso": 800
+    },
+    "sidecar_created": false,
+    "resolve_raw_interpretation": {
+      "color_science": "IPP2",
+      "color_space": "REDWideGamutRGB",
+      "gamma": "Log3G10",
+      "iso": 800,
+      "exposure_adjustment": 0
+    },
+    "redline_export": "Frame 0 decoded. The EXR export log reports Linear output in REDWideGamutRGB."
+  },
+  "qualification": {
+    "byte_serialization": true,
+    "offline_clip_decoder_compatibility": true,
+    "native_camera_recording": false,
+    "target_color_accuracy": false,
+    "zr_capture_parity": false,
+    "physical_flashing": false
+  },
+  "profile_id": 1
+}

@@ -1,0 +1,110 @@
+{
+  "target": "z63-c201",
+  "status": "incomplete; offline color candidate, unavailable recording capability",
+  "rows": [
+    {
+      "path": "H.265",
+      "supported": false,
+      "reason": "M1 basis, hardware gamma order, clipping, configuration retirement and codec metadata joins",
+      "mode_enumeration": "Pinned menu request rows in mode-requests.json. Effective admission remains unresolved.",
+      "menu_request_rows": 24,
+      "initializer_state_zero_rows": 21,
+      "allowed_wire_list_entries": 21,
+      "complete_encoder_admission": false
+    },
+    {
+      "path": "ProRes 422",
+      "supported": false,
+      "reason": "M1 basis, hardware gamma order, clipping, configuration retirement and codec metadata joins",
+      "mode_enumeration": "Pinned menu request rows in mode-requests.json. Effective admission remains unresolved.",
+      "menu_request_rows": 12,
+      "initializer_state_zero_rows": 12,
+      "allowed_wire_list_entries": 12,
+      "complete_encoder_admission": false
+    },
+    {
+      "path": "N-RAW",
+      "supported": false,
+      "reason": "RAW monitoring and decoder color interpretation remain unqualified",
+      "mode_enumeration": "Pinned menu request rows in mode-requests.json. Effective admission remains unresolved.",
+      "menu_request_rows": 36,
+      "initializer_state_zero_rows": 17,
+      "allowed_wire_list_entries": 17,
+      "complete_encoder_admission": false
+    },
+    {
+      "path": "ProRes RAW",
+      "supported": false,
+      "reason": "decoder interpretation join",
+      "mode_enumeration": "Pinned menu request rows in mode-requests.json. Effective admission remains unresolved.",
+      "menu_request_rows": 23,
+      "initializer_state_zero_rows": 13,
+      "allowed_wire_list_entries": 13,
+      "complete_encoder_admission": false
+    },
+    {
+      "path": "proxy",
+      "supported": false,
+      "reason": "active processing consumer join",
+      "mode_enumeration": "not yet recovered"
+    }
+  ],
+  "ei_available": false,
+  "physical_tests": 0,
+  "raw_compatibility": "Separate R3D module has linked hooks and offline REDline/Resolve decoder results. Full C2.01 recording remains unqualified.",
+  "m1_candidate": {
+    "producer": "0x4111CD60",
+    "ordinary_movie_block": "job+0x1DC0",
+    "dynamic_slot": "0x318",
+    "driver": "0x40C10D94",
+    "qualification": "original ARM parameter tests only; linear basis, clipping and hardware gamma order unresolved"
+  },
+  "zr_transplant": {
+    "source": "ZR C1.11",
+    "candidate": "src/platform/z63_c201/color_transplant.c",
+    "original_m2_cases": 65536,
+    "compiled_arm_cases": 21,
+    "native_recording_hook": false,
+    "qualification": "Original producer and writer comparison with supplied memory. No accepted RWG recording mode."
+  },
+  "desktop_order": {
+    "sdk_sha256": "7fe5cfaf4d35c9c4291cd502cd41835089c1a15755ace9bf3431d780cdba8424",
+    "m1_pixel_cases": 4096,
+    "paired_curve_cases": 4096,
+    "qualification": "Two original SDK instruction ranges. Host-supplied stack and absolute values. Camera basis and hardware order remain unproved."
+  },
+  "native_job": {
+    "candidate": "src/platform/z63_c201/color_job.c",
+    "packed_samples": "job+0x287C",
+    "call_boundary": "0x40E72798",
+    "original_cycles": 8,
+    "scalar_cases": 135168,
+    "stock_restorations": 4,
+    "native_hook_installed": false,
+    "qualification": "Original instructions with supplied frame memory. Indirect consumers, shared scratch and service fence still need live integration."
+  },
+  "file_inspection": {
+    "stock_c201_h265_frames": 36,
+    "stock_c201_prores_frames": 33,
+    "codec_and_container_tags": [
+      1,
+      1,
+      1
+    ],
+    "nikon_tone": "N-Log",
+    "pixel_transform_qualified": false
+  },
+  "mode_requests": {
+    "file": "mode-requests.json",
+    "stored_target_rows": 95,
+    "state_zero_target_rows": 63,
+    "state_zero_is_encoder_admission": false,
+    "source_checker": "host/check_z63_mode_requests.py",
+    "allowed_target_wire_entries": 63,
+    "menu_rows_with_listed_tuple": 86,
+    "forced_state_one_rows_with_listed_tuple": 23,
+    "original_setter_accepted_cases": 92,
+    "original_setter_refusals": 12,
+    "original_validator_cases": 330
+  }
+}

@@ -2,6 +2,7 @@
 import hashlib
 import struct
 from pathlib import Path
+from r3dne_profile import load as load_raw_profile
 
 
 def generate(profile, original, output):
@@ -24,6 +25,10 @@ def generate(profile, original, output):
             ',\n'.join('{'+','.join(map(str,row))+'}' for row in rows)+'\n};\n'
     header='/* Generated from the complete locally supplied original C2.01 EG. */\n'
     header+=bytes_array('fx_z63_video_rates',rows)
+    header+=bytes_array('fx_z63_raw_templates',[block(0x42b7153a,86)[:4]+b'NR3D'+block(0x42b7153a,86)[8:],block(0x42b71590,86)[:4]+b'NR3D'+block(0x42b71590,86)[8:]])
+    _,matrix=load_raw_profile()
+    header+='/* ZR NRMT matrix: blue-compressor 6ee37b7, Apache-2.0 constants. */\n'
+    header+='static const unsigned char fx_z63_raw_matrix_bytes[37]={'+','.join(map(str,matrix))+'};\n'
     templates=[]
     for q,label in enumerate([b'Apple ProRes 422 HQ',b'Apple ProRes 422',b'Apple ProRes 422 LT',b'Apple ProRes 422 Proxy']):
         row=bytearray(block(0x42b7145a,86));row[7]=b'hnso'[q];row[50]=len(label);row[51:82]=label.ljust(31,b'\0');templates.append(row)
@@ -50,6 +55,8 @@ def generate(profile, original, output):
                     delta=w&0x3ffffff
                     if delta&(1<<25):delta-=1<<26
                     if w>>26!=5 or not 0<=i+delta<len(words):raise ValueError('external Stock playback branch')
+        elif row['name']=='raw_matrix':
+            if size!=4 or word!=0xd2855e08:raise ValueError('RAW matrix entry differs')
         elif size!=4 or not (word&0x3a000000==0x28000000 or word&0xffe00fff==0xf8000ffe or word&0xffc003ff==0xd10003ff):
             raise ValueError('unsupported original video entry')
         name='fx_z63_video_'+row['name']+'_original'

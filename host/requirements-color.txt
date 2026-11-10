@@ -1,0 +1,2 @@
+# Offline calibration and independent numerical model tests only.
+numpy==2.3.4

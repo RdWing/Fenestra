@@ -4,7 +4,7 @@
 #include "fenestra_platform.h"
 #include "video_menu.h"
 typedef struct {
-    FxVideoQualityPolicy policy;
+    FxVideoQualityPolicy policy,raw;
     _Alignas(8) uint32_t mutex[4];
     _Atomic uint32_t ready,playback;
     _Atomic(FxZ63VideoMenuLease *) menu_lease;
@@ -15,4 +15,6 @@ FxZ63VideoQuality *fx_z63_menu_video(void);
 FxZ63VideoQuality *fx_z63_menu_prepare_video(void);
 FxResult fx_z63_video_resource(void *,uint32_t,const FxNamedBinding *,FxPlatformOwner *,uint64_t,
     uint64_t *,const FxServiceRequest *,FxServiceReply *);
+FxResult fx_z63_color_resource(void *,uint32_t,const FxNamedBinding *,FxPlatformOwner *,uint64_t,uint64_t *,const FxServiceRequest *,FxServiceReply *);
+FxResult fx_z63_raw_resource(void *,uint32_t,const FxNamedBinding *,FxPlatformOwner *,uint64_t,uint64_t *,const FxServiceRequest *,FxServiceReply *);
 #endif

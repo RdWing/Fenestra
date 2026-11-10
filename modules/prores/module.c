@@ -3,7 +3,8 @@
 #include "fenestra_video_quality_sdk.h"
 enum {LIFE,OPEN,INFO,PAGE,CHOICE,STATUS_ROW,NOTE,MENU,EVENTS,SELECT,STATUS};
 static FxSdkClient client;
-static uint32_t phase,choice,polls,unavailable,menu_supported;
+static uint32_t phase,choice,polls,unavailable,menu_supported,status_dirty;
+static uint32_t selection_waiting;
 static uint64_t binding;
 static FxVideoQualityStatus status;
 static const char names[5][16]={"Stock","HQ","Standard","LT","Proxy"};
@@ -21,7 +22,7 @@ static FxResult control(const FxServiceModule *api,uint32_t id) {
     }
     if(id==3u) {
         text(c.label,"Effective",sizeof(c.label));
-        const char *label=unavailable?"Unavailable":status.fault?"Needs restart":status.pending?"Waiting for idle":
+        const char *label=unavailable?"Unavailable":status.fault?"Needs restart":selection_waiting?"Selection busy":status.pending?"Waiting for idle":
             status.effective<=FX_VIDEO_PROXY?names[status.effective]:"Unavailable";
         text(c.text,label,sizeof(c.text));
     }
@@ -37,13 +38,18 @@ int fenestra_module_entry(const FxModuleServices *base) {
         if(taken==FX_BUSY)return 0;if(taken!=FX_OK)return 3;
         if(phase==OPEN && (a.result==FX_CAPABILITY || a.result==FX_STATE)){unavailable=1u;phase=PAGE;}
         else if(phase==MENU && (a.result==FX_CAPABILITY || a.result==FX_STATE)){phase=STATUS;}
-        else if(a.result==FX_BUSY){ /* Retry this stage without duplicating a commit. */ }
+        else if(a.result==FX_BUSY){
+            /* A rejected selection has no native commit. Read queued choices
+             * before retrying so Stock can replace a request held by the fence. */
+            if(phase==SELECT)phase=EVENTS;
+        }
         else if(phase==EVENTS && (a.result==FX_OK || a.result==FX_EMPTY)) {
             if(a.result==FX_OK && a.bytes==sizeof(FxUiEvent)) {
                 FxUiEvent e;for(uint32_t i=0u;i<sizeof(e);++i)((uint8_t *)&e)[i]=a.data[i];
-                if(!unavailable && e.control==2u && e.event==FX_INPUT_CHANGE && e.value<=FX_VIDEO_PROXY){choice=e.value;phase=SELECT;}
+                if(!unavailable && e.control==2u && e.event==FX_INPUT_CHANGE && e.value<=FX_VIDEO_PROXY){choice=e.value;selection_waiting=1u;status_dirty=1u;}
             }
-            if(!unavailable && phase==EVENTS && ++polls>=32u){polls=0u;phase=STATUS;}
+            if(!unavailable && ++polls>=32u){polls=0u;phase=STATUS;}
+            else if(a.result==FX_EMPTY && selection_waiting)phase=SELECT;
         } else if(a.result!=FX_OK)return 10+(int)phase;
         else if(phase==OPEN){binding=a.value[0];phase=INFO;}
         else if(phase==INFO) {
@@ -55,10 +61,13 @@ int fenestra_module_entry(const FxModuleServices *base) {
             if(a.bytes!=sizeof(status))return 6;
             FxVideoQualityStatus next;for(uint32_t i=0u;i<sizeof(next);++i)((uint8_t *)&next)[i]=a.data[i];
             if(next.abi!=1u || next.bytes!=sizeof(next) || next.family!=1u || next.effective>4u || next.requested>4u)return 7;
-            uint32_t changed=next.effective!=status.effective || next.pending!=status.pending || next.fault!=status.fault;
-            uint32_t sync=next.requested!=choice;choice=next.requested;
-            status=next;phase=sync?CHOICE:changed?STATUS_ROW:EVENTS;
-        } else if(phase==SELECT)phase=STATUS;
+            uint32_t changed=status_dirty || next.effective!=status.effective || next.pending!=status.pending || next.fault!=status.fault;
+            /* Status belongs to the admitted request. Keep a newer local choice
+             * until SELECT accepts or refuses it. */
+            uint32_t sync=!selection_waiting && next.requested!=choice;
+            if(!selection_waiting)choice=next.requested;
+            status_dirty=0u;status=next;phase=sync?CHOICE:changed?STATUS_ROW:EVENTS;
+        } else if(phase==SELECT){selection_waiting=0u;status_dirty=1u;phase=STATUS;}
         else if(phase==STATUS_ROW)phase=status.abi?EVENTS:NOTE;
         else if(phase==NOTE)phase=unavailable?EVENTS:menu_supported?MENU:STATUS;
         else if(phase==MENU)phase=STATUS;

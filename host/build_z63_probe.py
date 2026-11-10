@@ -51,7 +51,7 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
         from z63_video import generate as generate_video
         video_returns=generate_video(profile,original,out)
         flags+=['-DFX_Z63_VIDEO=1','-mno-outline-atomics','-I',str(ROOT/'src/platform/z63_c201')]
-        sources+=['src/video_quality.c','src/platform/z63_c201/video_quality.c','src/platform/z63_c201/video_menu.c','src/platform/z63_c201/video_hooks.S']
+        sources+=['src/video_quality.c','src/platform/z63_c201/video_quality.c','src/platform/z63_c201/video_color.c','src/platform/z63_c201/video_menu.c','src/platform/z63_c201/video_hooks.S']
     if ui:
         if not runtime:raise ValueError('native UI requires the discovered worker runtime')
         flags+=['-DFX_Z63_UI=1','-DFX_NATIVE_UI_INPUT=1','-DFX_NATIVE_SCENE=1','-DFX_NATIVE_TASKS=1']
@@ -164,7 +164,7 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
     identity_inputs=[*sources,'host/build_z63_probe.py','host/build_z63_adapter.py','host/z63_bindings.py',
                      'host/compiler_dependencies.py','host/verify_z63_build.py','host/z63_package.py',
                      'fenestra.py','targets/z63-c201.json','emulation/z63_probe.ld']
-    if video:identity_inputs+=['host/z63_video.py']
+    if video:identity_inputs+=['host/z63_video.py','host/r3dne_profile.py','modules/r3dne/profile.json']
     header=(out/'z63_debug_identity.h').relative_to(ROOT).as_posix()
     configuration={}
     def emit(inputs):

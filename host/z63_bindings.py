@@ -9,7 +9,7 @@ def generate(profile, original, out):
         ''.join('#define FX_Z63_STARTUP_'+name.upper()+' '+hex(card['camera.card.'+name])+'ull\n'
                 for name in ('open','read','write','close','remove')))
     lines = ['/* Generated locally from the pinned C2.01 input. */',
-             '#ifdef FX_Z63_VIDEO\n#include "video_quality.h"\n#endif',
+             '#ifdef FX_Z63_VIDEO\n#include "video_quality.h"\n#include "fenestra_video_color.h"\n#endif',
              '#include "fenestra_accounting_service.h"',
              '#include "fenestra_capacity.h"',
              'static const FxNamedBinding fx_target_bindings[]={']
@@ -47,6 +47,8 @@ def generate(profile, original, out):
         lines.append('{'+json.dumps(name)+',FX_BIND_DEVICE,FX_CALL_DEVICE,1,FX_BIND_PROVIDER,FX_SDK_QUERY,0,(uintptr_t)'+symbol+',{0}},')
     lines+=['#ifdef FX_Z63_VIDEO',
             '{"camera.video.quality",FX_BIND_DEVICE,FX_CALL_DEVICE,1,FX_BIND_PROVIDER,FX_SDK_NATIVE,0,(uintptr_t)fx_z63_video_resource,{0}},',
+            '{"camera.video.color",FX_BIND_DEVICE,FX_CALL_DEVICE,1,FX_BIND_PROVIDER,FX_SDK_NATIVE,0,(uintptr_t)fx_z63_color_resource,{0}},',
+            '{"camera.video.raw",FX_BIND_DEVICE,FX_CALL_DEVICE,1,FX_BIND_PROVIDER,FX_SDK_NATIVE,0,(uintptr_t)fx_z63_raw_resource,{0}},',
             '#endif']
     lines += ['};', '#define FX_TARGET_IDENTITY {'+','.join(map(str,bytes.fromhex(profile['application_sha256'])))+'}',
               '#define FX_TARGET_MODULE_IDENTITY {'+','.join(map(str,bytes.fromhex(profile['payload_sha256'])))+'}',

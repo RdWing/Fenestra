@@ -4,6 +4,7 @@
 #include "fenestra_extensions.h"
 #include "../modules/prores/module.c"
 FxExtensionDomain *fx_native_extensions(FxPlatformOwner *p){(void)p;return 0;}
+static uint32_t conflict,busy_replies,status_calls;
 static FxVideoQualityPolicy policy;
 static FxPlatformOwner owner;
 static FxServiceOwner service_owner;
@@ -22,13 +23,14 @@ static FxResult resource(void *context,uint32_t op,const FxNamedBinding *descrip
         assert(!no_menu);assert(q->bytes==sizeof(FxVideoQualityMenu));FxVideoQualityMenu request;memcpy(&request,q->data,sizeof(request));
         assert(request.abi==1u && request.bytes==sizeof(request) && request.control==2u && !request.reserved);++menu_attached;
     } else if(q->arg[2]==FX_VIDEO_QUALITY_STATUS) {
-        fx_video_quality_commit(&policy,idle);
+        ++status_calls;fx_video_quality_commit(&policy,idle);
         FxVideoQualityStatus snapshot={1u,sizeof(snapshot),1u,policy.requested,atomic_load(&policy.effective),idle,
             policy.active[0],policy.active[1],policy.requested!=atomic_load(&policy.effective),atomic_load(&policy.fault),commits,0u};
         a->bytes=sizeof(snapshot);memcpy(a->data,&snapshot,sizeof(snapshot));
     } else {
         assert(q->arg[2]==FX_VIDEO_QUALITY_SELECT && q->bytes==sizeof(FxVideoQualitySelection));
         FxVideoQualitySelection selection;memcpy(&selection,q->data,sizeof(selection));
+        if(conflict && selection.choice){++busy_replies;return FX_BUSY;}
         if(busy_once){busy_once=0u;return FX_BUSY;}
         FxResult r=fx_video_quality_select(&policy,token,selection.choice,idle);if(r==FX_OK)++commits;return r;
     }
@@ -50,6 +52,7 @@ static void steps(uint32_t count) {
         (void)fx_service_dispatch(&service_owner,&exchange.request,&exchange.reply);
     }
 }
+#include "video_module_retry_cases.h"
 int main(int argc,char **argv) {
     (void)argv;FxNamedBinding descriptor={.name=FX_VIDEO_QUALITY_PROVIDER,.kind=FX_BIND_DEVICE,.abi=FX_CALL_DEVICE,
         .version=1u,.flags=FX_BIND_PROVIDER,.capabilities=FX_SDK_NATIVE,.address=1u};
@@ -59,9 +62,10 @@ int main(int argc,char **argv) {
     assert(fx_platform_init(&owner,&platform,1u,1u,FX_SDK_CAPS)==FX_OK);
     fx_service_init(&service_owner,1u,1u,FX_SDK_CAPS,(FxServiceBackend){&owner,service,stop});
     fx_video_quality_init(&policy);policy.registered=3u;steps(160u);
-    if(argc==2 && !no_menu){assert(!(row(2u).flags&FX_UI_ENABLED) && !strcmp(row(4u).label,"Requires updated core"));return 0;}
+    if(argc==2 && !strcmp(argv[1],"old-core")){assert(!(row(2u).flags&FX_UI_ENABLED) && !strcmp(row(4u).label,"Requires updated core"));return 0;}
     assert(menu_attached==(no_menu?0u:1u) && row(2u).option_count==5u && (row(2u).flags&FX_UI_ENABLED));
     assert(!strcmp(row(3u).text,"Stock"));
+    if(argc==2 && !strncmp(argv[1],"retry-",6u)){retry_case(argv[1],FX_VIDEO_LT,FX_VIDEO_PROXY);return 0;}
     assert(fx_ui_route(&owner,2u,FX_INPUT_CHANGE,FX_VIDEO_LT)==FX_OK);busy_once=1u;steps(160u);
     assert(atomic_load(&policy.effective)==FX_VIDEO_LT && commits==1u && !strcmp(row(3u).text,"LT"));
     assert(fx_video_quality_select(&policy,UINT64_C(0x1234),FX_VIDEO_HQ,idle)==FX_BUSY);
