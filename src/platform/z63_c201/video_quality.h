@@ -12,6 +12,7 @@ typedef struct {
     FxVideoQualityPolicy h265;
     _Atomic(FxZ63VideoMenuLease *) h265_menu_lease;
     _Atomic uint32_t settings_busy,save_generation,save_sequence,save_result;
+    FxPlatformOwner *prores_owner,*h265_owner;
 
 } FxZ63VideoQuality;
 void fx_z63_video_init(FxZ63VideoQuality *);

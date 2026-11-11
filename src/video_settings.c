@@ -47,3 +47,19 @@ int fx_h265_settings_write(uint32_t word, uint32_t tier, uint32_t *replacement) 
     *replacement = (word & 255u) | (record << 8) | (crc8(record) << 24);
     return 1;
 }
+
+int fx_prores_settings_read(uint32_t word, uint32_t *grade) {
+    uint32_t record;
+    if (!grade || !payload(word, &record)) return 0;
+    *grade = record & 3u;
+    return 1;
+}
+
+int fx_prores_settings_write(uint32_t word, uint32_t grade, uint32_t *replacement) {
+    uint32_t record;
+    if (!replacement || grade > 3u || (word & 255u) > 1u || !payload(word, &record))
+        return 0;
+    record = (record & ~3u) | grade;
+    *replacement = (word & 255u) | (record << 8) | (crc8(record) << 24);
+    return 1;
+}

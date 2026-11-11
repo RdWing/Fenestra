@@ -74,13 +74,11 @@ int main(int argc,char **argv) {
     assert(!strcmp(row(4u).text,persistent_service?"Saved in camera":"Session only"));
     assert(menu_attached==(no_menu?0u:1u) && row(2u).option_count==5u && (row(2u).flags&FX_UI_ENABLED));
     assert(!strcmp(row(3u).text,names[0]));
-#ifdef FX_H265_APP
     wrong_mode=1u;
     assert(fx_ui_route(&owner,2u,FX_INPUT_CHANGE,FX_VIDEO_HQ)==FX_OK);steps(160u);
     assert(!atomic_load(&policy.effective) && row(2u).value==0u);
-    assert(!strcmp(row(3u).text,FX_CHOICE_MODE_NOTE));
+    assert(!strcmp(row(3u).text,"Selection refused"));
     wrong_mode=0u;
-#endif
     if(argc==2 && !strncmp(argv[1],"retry-",6u)){retry_case(argv[1],FX_VIDEO_LT,FX_VIDEO_PROXY);return 0;}
     assert(fx_ui_route(&owner,2u,FX_INPUT_CHANGE,FX_VIDEO_LT)==FX_OK);busy_once=1u;steps(160u);
     assert(atomic_load(&policy.effective)==FX_VIDEO_LT && commits==1u && !strcmp(row(3u).text,names[FX_VIDEO_LT]));

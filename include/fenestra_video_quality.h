@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <stdatomic.h>
 #include "fenestra_services.h"
-/* camera.video.quality/v1: session-only, family-specific choices. A request
+/* camera.video.quality/v1: family-specific choices; QUERY reports persistence. A request
  * can remain pending until all native admission owners have reached idle. */
 #define FX_VIDEO_QUALITY_ABI 1u
 #define FX_VIDEO_QUALITY_PROVIDER "camera.video.quality"

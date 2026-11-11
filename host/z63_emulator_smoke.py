@@ -26,7 +26,7 @@ def clone(source, destination):
     shutil.copyfile(source, destination)
 
 
-def scanout_fraction(reference, candidate):
+def scanout_fraction(reference, candidate, channel_tolerance=0):
     def ppm(path):
         data = Path(path).read_bytes()
         match = re.match(rb'P6\s+(\d+)\s+(\d+)\s+255\s', data)
@@ -48,7 +48,7 @@ def scanout_fraction(reference, candidate):
     for y in range(height // 2, height * 3 // 4, 4):
         for x in range(width // 4, width * 9 // 16, 4):
             at = (y * width + x) * 3
-            matched += before[at:at + 3] == after[at:at + 3]
+            matched += max(abs(before[at+c]-after[at+c]) for c in range(3)) <= channel_tolerance
             total += 1
     return matched / total if total else 0.0
 
@@ -124,6 +124,7 @@ def main():
     for name in ('qemu', 'application', 'receipt', 'loader', 'snor', 'nand', 'mcu', 'card', 'raw', 'plugin', 'output-dir'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--ptp-client', type=Path, help='matching external QEMU USB/IP PTP client, for native debug transport testing')
+    parser.add_argument('--scanout-channel-tolerance',type=int,choices=range(5),default=0,help='explicit RGB tolerance for visual-return comparisons; default remains exact')
     parser.add_argument('--seconds', type=float, default=35)
     parser.add_argument('--module-count',type=int,default=1,help='expected inventory size for the runtime control')
     parser.add_argument('--keys', default='', help='comma-separated native MCU key presses after boot')
@@ -148,9 +149,11 @@ def main():
     parser.add_argument('--demo-test',action='store_true',help='exercise the bundled character-rain module, native Back/blur and reopen')
     parser.add_argument('--video-menu-test',action='store_true',help='check the native Video quality (ProRes) row and its shared state')
     parser.add_argument('--video-test',action='store_true',help='exercise the ProRes module choice page and deferred native publication')
+    parser.add_argument('--h265-after-stop-tier',type=int,choices=range(5),help='change the saved tier after native drain, before opening the recorded clip')
     parser.add_argument('--h265-record-tier',type=int,choices=range(5),help='record, stop, and open playback with a selected H.265 tier')
     parser.add_argument('--dma-copy-zero-model',action='store_true',help='explicitly enable the functional mode-zero DMA bridge in a compatible emulator')
     parser.add_argument('--video-properties',type=Path,help='external semicolon-separated functional video model properties')
+    parser.add_argument('--prores-initial-choice',type=int,choices=range(5),default=0,help='expected restored ProRes choice on attachment')
     parser.add_argument('--h265-initial-tier',type=int,choices=range(5),default=0,help='expected restored tier at module attachment')
     parser.add_argument('--export-snor',action='store_true',help='save the modeled NOR image after acknowledged shutdown')
     parser.add_argument('--h265-test',action='store_true',help='use the H.265 app and bitrate policy for the video selection control')
@@ -160,6 +163,7 @@ def main():
     args = parser.parse_args()
     if args.h265_test and (not args.video_test or args.video_record_choice is not None or args.module_count!=1):
         parser.error('--h265-test requires one module and the video selection control')
+    if args.h265_after_stop_tier is not None and args.h265_record_tier is None:parser.error('--h265-after-stop-tier requires --h265-record-tier')
     if args.h265_record_tier is not None and (not args.h265_test or not args.video_menu_test or not args.video_properties):
         parser.error('--h265-record-tier requires H.265/native-menu controls and explicit --video-properties')
     if args.dma_copy_zero_model and args.h265_record_tier is None:parser.error('--dma-copy-zero-model requires --h265-record-tier')
@@ -382,7 +386,7 @@ def main():
 
                 def keypress(key):
                     qmp('qom-set', {'path': '/machine', 'property': 'mcu-keys', 'value': key})
-                    time.sleep(.5)
+                    time.sleep(.35)
                     qmp('qom-set', {'path': '/machine', 'property': 'mcu-keys', 'value': ''})
                     time.sleep(1.5)
 
@@ -554,16 +558,18 @@ def main():
                                 return dict(effective=u32(meta[4]),requested=u32(meta[5]),registered=u32(meta[6]),
                                     movie=u32(meta[7]),capture=u32(meta[7]+4),fault=u32(meta[8]))
                             initial=video_state()
-                            expected_initial=args.h265_initial_tier if args.h265_test else 0
+                            expected_initial=args.h265_initial_tier if args.h265_test else args.prores_initial_choice
                             if initial['effective']!=expected_initial or initial['requested']!=expected_initial or initial['fault']:
                                 raise RuntimeError('Video module did not begin at Stock')
                             selections=[];cursor=initial['requested']
                             choices=((1,2,3,4,0,4) if args.shutdown_test else (1,2,3,4,0)) if args.video_record_choice is None else (args.video_record_choice,)
                             if args.h265_record_tier is not None:choices=(0,args.h265_record_tier) if args.h265_record_tier else (1,0)
                             for selected in choices:
-                                keypress('ok')
-                                picker=view()>>16
-                                if picker==0x7100:raise RuntimeError('Video app selector did not open')
+                                for attempt in range(3):
+                                    keypress('ok');time.sleep(1)
+                                    picker=view()>>16
+                                    if picker!=0x7100:break
+                                else:raise RuntimeError('Video app selector did not open')
                                 leaf=int(json.loads((out/'native-views.jsonl').read_text().splitlines()[-1])['chain'][-1],16)
                                 cursor=(read64(leaf+48)>>16)&65535
                                 if cursor>5:raise RuntimeError('Video app selector cursor differs')
@@ -702,14 +708,14 @@ def main():
                         menu_exit_presses += 1
                         view()  # Retained menu identity is not visibility.
                         qmp('screendump', {'filename': str(out / 'returned.ppm')})
-                        scanout_matches = scanout_fraction(out / 'before-menu.ppm', out / 'returned.ppm')
+                        scanout_matches = scanout_fraction(out / 'before-menu.ppm', out / 'returned.ppm', args.scanout_channel_tolerance)
                         if args.expect=='global' or args.panic_test:
                             native_view=read64(0xa03393110)
                             if 0xa00000000<=native_view<0xa40000000-0x110 and read64(native_view+0x54)&0xffffffff==3 and read64(native_view+0xd0)&0xffffffff==1:
                                 break
                         elif scanout_matches >= .90:
                             break
-                    menu_matches = scanout_fraction(out / 'before-menu.ppm', out / 'fenestra.ppm')
+                    menu_matches = scanout_fraction(out / 'before-menu.ppm', out / 'fenestra.ppm', args.scanout_channel_tolerance)
                     if (scanout_matches < .90 and args.expect!='global' and not args.panic_test) or menu_matches >= .50:
                         raise RuntimeError('live-view scanout control did not distinguish menu/return')
                     menu_completed = True
@@ -902,7 +908,7 @@ def main():
                         if view()>>16!=690:raise RuntimeError('Recording app did not return to Setup')
                         for _ in range(3):
                             keypress('menu');qmp('screendump',{'filename':str(out/'before-recording-menu.ppm')})
-                            if scanout_fraction(out/'before-menu.ppm',out/'before-recording-menu.ppm')>=.9:break
+                            if scanout_fraction(out/'before-menu.ppm',out/'before-recording-menu.ppm',args.scanout_channel_tolerance)>=.9:break
                         else:raise RuntimeError('Recording app did not return to live view')
                         keypress('menu');keypress('left');keypress('left')
                         for _ in range(3):keypress('up')
@@ -944,7 +950,26 @@ def main():
                             time.sleep(3)
                         recording['recording_stopped_and_drained']=True
                         recording['codec_after_record']=model('wave5-vpu-state');save_recording()
-                        keypress('lever=photo');time.sleep(8);keypress('play');time.sleep(5)
+                        keypress('lever=photo');time.sleep(8)
+                        if args.h265_after_stop_tier is not None:
+                            keypress('half');keypress('menu')
+                            for attempt in range(3):
+                                if view()>>16==266:break
+                                time.sleep(2)
+                                if view()>>16==266:break
+                                keypress('menu')
+                            else:raise RuntimeError('Post-stop Video menu not reached')
+                            seek_current(0x7f51);keypress('right')
+                            if view()>>16!=0x7061:raise RuntimeError('Post-stop H.265 selector absent')
+                            leaf=int(json.loads((out/'native-views.jsonl').read_text().splitlines()[-1])['chain'][-1],16)
+                            cursor=(read64(leaf+48)>>16)&65535
+                            chosen=args.h265_after_stop_tier
+                            for _ in range(abs(chosen-cursor)):keypress('down' if chosen>cursor else 'up')
+                            keypress('ok');time.sleep(2)
+                            if view()>>16!=266 or video_state()['effective']!=chosen:raise RuntimeError('Post-stop tier did not publish')
+                            recording['post_stop_selection']=video_state();save_recording()
+                            keypress('half')
+                        keypress('play');time.sleep(5)
                         qmp('screendump',{'filename':str(out/'h265-playback-entry.ppm')})
                         playback_calls=re.findall(r'call pc=0x407ebf20 x0=(0x[0-9a-f]+) x1=(0x[0-9a-f]+)',(out/'calls.log').read_text())
                         if not playback_calls:raise RuntimeError('Native playback codec-class call not observed')
@@ -1060,7 +1085,7 @@ def main():
                         if scanout_matches<.90:raise RuntimeError('Global close did not restore native live view')
                 for index, key in enumerate(filter(None, args.keys.split(','))):
                     qmp('qom-set', {'path': '/machine', 'property': 'mcu-keys', 'value': key})
-                    time.sleep(.5)
+                    time.sleep(.35)
                     qmp('qom-set', {'path': '/machine', 'property': 'mcu-keys', 'value': ''})
                     time.sleep(1.5)
                     qmp('screendump', {'filename': str(out / ('key-%02d.ppm' % index))})
@@ -1367,6 +1392,8 @@ def main():
         stages=stages, seconds=time.monotonic() - start, candidate_sha256=receipt['candidate_sha256'],
         qemu_sha256=hashlib.sha256(args.qemu.read_bytes()).hexdigest(),
         plugin_sha256=hashlib.sha256(args.plugin.read_bytes()).hexdigest(),
+        scanout_channel_tolerance=args.scanout_channel_tolerance,
+        live_view_exact_fraction=scanout_fraction(out/'before-menu.ppm',out/'returned.ppm') if (out/'returned.ppm').exists() else None,
         visual_review_required=True, physical_camera_tested=False, native_menu_completed=menu_completed,
         repeat_activation_tested=args.repeat_activation,ptp=ptp_result,
         native_view_identities=views, live_view_match_fraction=scanout_matches,

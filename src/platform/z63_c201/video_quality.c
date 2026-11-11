@@ -9,7 +9,18 @@
 __attribute__((used,retain)) const uint32_t fx_z63_h265_layout[]={0x46584835u,2u,
     offsetof(FxZ63VideoQuality,h265),offsetof(FxZ63VideoQuality,ready),
     offsetof(FxVideoQualityPolicy,effective),offsetof(FxVideoQualityPolicy,registered),
-    offsetof(FxVideoQualityPolicy,active),offsetof(FxPlatformOwner,phase)};
+    offsetof(FxVideoQualityPolicy,active),offsetof(FxPlatformOwner,phase),
+    offsetof(FxZ63VideoQuality,settings_busy)};
+static _Atomic uint32_t *settings_word(void);
+static FxResult persisted_select(FxPlatformOwner *,uint64_t,uint32_t,FxZ63VideoMenuLease *,uint32_t);
+static int saved_choice(uint32_t word,uint32_t family,uint32_t *choice) {
+    if(family==FX_VIDEO_FAMILY_H265)return fx_h265_settings_read(word,choice);
+    uint32_t grade;
+    if(!fx_prores_settings_read(word,&grade))return 0;
+    /* Stock and HQ share stored grade zero. Restore its Stock alias. */
+    *choice=grade?grade+1u:0u;
+    return 1;
+}
 static uint32_t native_idle(void) {
     if(*FN(0xa048bb044,volatile uint32_t *) || *FN(0xa03324ce0,volatile uint32_t *) ||
        *FN(0xa03324dc8,volatile uint32_t *))return 0u;
@@ -28,6 +39,7 @@ void fx_z63_video_init(FxZ63VideoQuality *s) {
     atomic_init(&s->menu_lease,0);atomic_init(&s->h265_menu_lease,0);
     atomic_init(&s->settings_busy,0u);atomic_init(&s->save_generation,0u);
     atomic_init(&s->save_sequence,0u);atomic_init(&s->save_result,0u);s->menu=0;
+    s->prores_owner=0;s->h265_owner=0;
     FN(0x40d32e64,void (*)(void *,const char *))(s->mutex,"FXVIDEO");
     if(FN(0x40d32f98,uint32_t (*)(void *,uint32_t))(s->mutex,0u)!=1u){s->policy.fault=1u;return;}
     unlock(s);atomic_store_explicit(&s->ready,1u,memory_order_release);
@@ -135,14 +147,27 @@ FxResult fx_z63_video_resource(void *context,uint32_t op,const FxNamedBinding *b
     FxZ63VideoQuality *s=fx_z63_menu_video();if(!s)return FX_STATE;
     if(op==FX_RESOURCE_ATTACH){
         if(!atomic_load_explicit(&s->ready,memory_order_acquire))return FX_STATE;
-        *cookie=token;return FX_OK;
+        if(!lock(s))return FX_BUSY;
+        if(atomic_load(&s->settings_busy)){unlock(s);return FX_BUSY;}
+        uint32_t choice;
+        if(!s->policy.owner && saved_choice(atomic_load(settings_word()),FX_VIDEO_FAMILY_PRORES422,&choice)) {
+            if(choice && (s->raw.requested || atomic_load(&s->raw.effective))){unlock(s);return FX_BUSY;}
+            (void)fx_video_quality_select(&s->policy,token,choice,native_idle());
+        }
+        if(s->policy.owner==token)s->prores_owner=owner;
+        *cookie=token;unlock(s);return FX_OK;
     }
     if(*cookie!=token)return FX_STALE;
+    if(op==FX_RESOURCE_CALL && q && a && !q->arg[3] && q->arg[2]==FX_VIDEO_QUALITY_SELECT && q->bytes==sizeof(FxVideoQualitySelection)) {
+        FxVideoQualitySelection choice;memcpy(&choice,q->data,sizeof(choice));
+        if(choice.abi!=FX_VIDEO_QUALITY_ABI || choice.bytes!=sizeof(choice) || choice.family!=FX_VIDEO_FAMILY_PRORES422)return FX_ARGUMENT;
+        return persisted_select(owner,token,choice.choice,0,FX_VIDEO_FAMILY_PRORES422);
+    }
     if(!lock(s))return FX_BUSY;
     uint32_t idle=native_idle();FxResult result=FX_ARGUMENT;
     if(op==FX_RESOURCE_DETACH || op==FX_RESOURCE_PANIC) {
         fx_z63_video_menu_unbind(owner,token);
-        result=fx_video_quality_release(&s->policy,token,idle);
+        result=atomic_load(&s->settings_busy)?FX_BUSY:fx_video_quality_release(&s->policy,token,idle);
         if(result==FX_OK && op==FX_RESOURCE_DETACH)*cookie=0u;
     } else if(op==FX_RESOURCE_CALL && q && a) {
         fx_video_quality_commit(&s->policy,idle);
@@ -157,7 +182,7 @@ FxResult fx_z63_video_resource(void *context,uint32_t op,const FxNamedBinding *b
                 result=fx_z63_video_menu_bind(owner,token,menu.control,FX_VIDEO_FAMILY_PRORES422);
         } else if(!q->bytes && q->arg[2]==FX_VIDEO_QUALITY_QUERY) {
             FxVideoQualityInfo info={1u,sizeof(info),FX_VIDEO_FAMILY_PRORES422,31u,
-                FX_VIDEO_QUALITY_SESSION_ONLY|FX_VIDEO_QUALITY_EXPERIMENTAL|FX_VIDEO_QUALITY_NATIVE_MENU,0u};
+                FX_VIDEO_QUALITY_PERSISTENT|FX_VIDEO_QUALITY_EXPERIMENTAL|FX_VIDEO_QUALITY_NATIVE_MENU,0u};
             memcpy(a->data,&info,sizeof(info));a->bytes=sizeof(info);result=FX_OK;
         } else if(!q->bytes && q->arg[2]==FX_VIDEO_QUALITY_STATUS) {
             FxVideoQualityPolicy *p=&s->policy;uint32_t effective=atomic_load_explicit(&p->effective,memory_order_acquire);
@@ -186,11 +211,7 @@ FxResult fx_z63_video_menu_status(FxZ63VideoMenuLease *lease,FxVideoQualityStatu
 FxResult fx_z63_video_menu_select(FxZ63VideoMenuLease *lease,uint32_t choice) {
     FxZ63VideoQuality *s=fx_z63_menu_video();if(!s || !lease)return FX_ARGUMENT;
     if(lease->family==FX_VIDEO_FAMILY_H265)return fx_z63_h265_select(lease->owner,lease->token,choice,lease);
-    if(!lock(s))return FX_BUSY;
-    FxResult result=FX_STATE;
-    if(atomic_load(lease->family==FX_VIDEO_FAMILY_H265?&s->h265_menu_lease:&s->menu_lease)==lease && atomic_load(&lease->active) && lease->owner->phase==FX_OWNER_RUNNING)
-        result=choice && (s->raw.requested || atomic_load(&s->raw.effective))?FX_BUSY:fx_video_quality_select(&s->policy,lease->token,choice,native_idle());
-    unlock(s);return result;
+    return persisted_select(lease->owner,lease->token,choice,lease,FX_VIDEO_FAMILY_PRORES422);
 }
 
 /* RAW compatibility uses the same registration, admission mutex and active
@@ -224,7 +245,8 @@ FxResult fx_z63_raw_resource(void *context,uint32_t op,const FxNamedBinding *bin
         } else if(q->arg[2]==FX_VIDEO_QUALITY_SELECT && q->bytes==sizeof(FxVideoQualitySelection)) {
             FxVideoQualitySelection sel;memcpy(&sel,q->data,sizeof(sel));
             if(sel.abi==1u && sel.bytes==sizeof(sel) && sel.family==FX_VIDEO_FAMILY_RAW && sel.choice<=1u) {
-                if(sel.choice && FN(0x403ffcd0,uint32_t (*)(uint32_t))(UINT32_C(0x06000f06))!=6u)result=FX_STATE;
+                if(sel.choice && atomic_load(&s->settings_busy))result=FX_BUSY;
+                else if(sel.choice && FN(0x403ffcd0,uint32_t (*)(uint32_t))(UINT32_C(0x06000f06))!=6u)result=FX_STATE;
                 else if(sel.choice && (s->policy.requested || atomic_load(&s->policy.effective)))result=FX_BUSY;
                 else result=fx_video_quality_select(p,token,sel.choice,idle);
             }
@@ -287,27 +309,37 @@ uint32_t fx_z63_h265_save_result(uint32_t mode) {
 
 FxResult fx_z63_h265_select(FxPlatformOwner *owner,uint64_t token,uint32_t choice,
                           FxZ63VideoMenuLease *menu_lease) {
+    return persisted_select(owner,token,choice,menu_lease,FX_VIDEO_FAMILY_H265);
+}
+static FxResult persisted_select(FxPlatformOwner *owner,uint64_t token,uint32_t choice,
+                                FxZ63VideoMenuLease *menu_lease,uint32_t family) {
     if (!owner || !token || choice>4u) return FX_ARGUMENT;
+    uint32_t h265=family==FX_VIDEO_FAMILY_H265;
     FxZ63VideoQuality *s=fx_z63_menu_video();
     if (!lock(s)) return FX_BUSY;
-    FxVideoQualityPolicy *policy=&s->h265;
+    FxVideoQualityPolicy *policy=h265?&s->h265:&s->policy;
     FxResult refused=FX_STATE;
     if (atomic_load(&policy->fault) || policy->retiring || owner->phase!=FX_OWNER_RUNNING)
         goto refuse;
-    if (menu_lease && (atomic_load(&s->h265_menu_lease)!=menu_lease || !atomic_load(&menu_lease->active)))
+    if (menu_lease && (atomic_load(h265?&s->h265_menu_lease:&s->menu_lease)!=menu_lease || !atomic_load(&menu_lease->active)))
         goto refuse;
     if ((policy->owner && policy->owner!=token) || atomic_load(&s->settings_busy)) {
         refused=FX_BUSY;goto refuse;
     }
     uint32_t type=FN(0x403ffcd0,uint32_t (*)(uint32_t))(UINT32_C(0x06000f06));
-    if (choice && type!=2u && type!=3u) goto refuse;
+    if (h265 && choice && type!=2u && type!=3u) goto refuse;
+    if (!h265 && choice && (s->raw.requested || atomic_load(&s->raw.effective))) {
+        refused=FX_BUSY;goto refuse;
+    }
     if (!native_idle() || policy->active[0] || policy->active[1]) {
         refused=FX_BUSY;goto refuse;
     }
+    uint32_t prior_choice=policy->requested;
     uint32_t prior=atomic_load_explicit(settings_word(),memory_order_acquire),next;
-    if (!fx_h265_settings_write(prior,choice,&next)) goto refuse;
+    if (!(h265?fx_h265_settings_write(prior,choice,&next):fx_prores_settings_write(prior,choice?choice-1u:0u,&next))) goto refuse;
     uint32_t sequence=atomic_load_explicit(&s->save_sequence,memory_order_acquire);
     if (sequence==UINT32_MAX || !replace_settings(prior,next)) goto refuse;
+    if(h265)s->h265_owner=owner;else s->prores_owner=owner;
     atomic_store(&s->settings_busy,1u);
     atomic_store_explicit(&s->save_generation,sequence+1u,memory_order_release);
     unlock(s);
@@ -323,7 +355,7 @@ FxResult fx_z63_h265_select(FxPlatformOwner *owner,uint64_t token,uint32_t choic
     if (!saved && !replace_settings(next,prior)) {
         uint32_t tier;
         observed=atomic_load_explicit(settings_word(),memory_order_acquire);
-        owned=(observed>>8)!=(next>>8) && fx_h265_settings_read(observed,&tier);
+        owned=(observed>>8)!=(next>>8) && saved_choice(observed,family,&tier);
     }
     if (!lock(s)) {
         atomic_store(&policy->fault,1u);
@@ -338,8 +370,22 @@ FxResult fx_z63_h265_select(FxPlatformOwner *owner,uint64_t token,uint32_t choic
             (void)fx_video_quality_release(policy,token,native_idle());
     } else if (owned) {
         uint32_t tier;
-        if (fx_h265_settings_read(atomic_load(settings_word()),&tier))
+        uint32_t restored=atomic_load(settings_word());
+        if (saved_choice(restored,family,&tier)) {
+            if((restored>>8)==(prior>>8))tier=prior_choice;
             (void)fx_video_quality_select(policy,token,tier,native_idle());
+            /* A reset/recall can replace both families in the shared record. */
+            uint32_t other_family=h265?FX_VIDEO_FAMILY_PRORES422:FX_VIDEO_FAMILY_H265;
+            FxVideoQualityPolicy *other=h265?&s->policy:&s->h265;
+            FxPlatformOwner *other_owner=h265?s->prores_owner:s->h265_owner;
+            uint32_t before_other,after_other;
+            if(other->owner && other_owner && other_owner->phase==FX_OWNER_RUNNING && saved_choice(prior,other_family,&before_other) &&
+               saved_choice(restored,other_family,&after_other) && before_other!=after_other) {
+                if(h265 && after_other && (s->raw.requested || atomic_load(&s->raw.effective)))
+                    atomic_store(&other->fault,1u);
+                else (void)fx_video_quality_select(other,other->owner,after_other,native_idle());
+            }
+        }
     }
     atomic_store_explicit(&s->settings_busy,0u,memory_order_release);
     unlock(s);
@@ -373,6 +419,7 @@ FxResult fx_z63_h265_resource(void *context,uint32_t op,const FxNamedBinding *bi
             uint32_t tier;
             if (!p->owner && fx_h265_settings_read(atomic_load(settings_word()),&tier))
                 (void)fx_video_quality_select(p,token,tier,idle);
+            if(p->owner==token)s->h265_owner=owner;
             *cookie=token;result=FX_OK;
         }
     } else if(op==FX_RESOURCE_DETACH || op==FX_RESOURCE_PANIC) {

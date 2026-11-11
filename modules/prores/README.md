@@ -45,7 +45,8 @@ binding token. Stop disables that attachment before requesting Stock.
 
 ## Ownership and stop
 
-The backend starts at Stock on each boot. Selection claims the binding token.
+The backend restores the saved grade when the module attaches after boot.
+Stored HQ grade zero restores as Stock; HQ remains a separate in-session alias. Selection claims the binding token.
 Another binding receives BUSY until the owner releases it. A change becomes
 effective only after both native worker registrations and retirement of tracked
 jobs. Native admission must also report idle. The app's Effective row shows
@@ -54,8 +55,10 @@ retains the last effective choice.
 
 Select Stock to restore the original path. During shutdown, core resource
 cleanup requests Stock and waits for native work. The core retains its hooks
-and copied UI storage until reboot. Choices apply to this session. The module
-writes no preferences or camera settings. The original Video file type menu
+and copied UI storage until reboot. Selections save through the original settings worker, sharing the transaction
+guard with H.265. Failed or suppressed saves preserve the prior selection;
+a valid reset or recall that supersedes the transaction takes precedence.
+Shutdown restores runtime Stock without erasing the saved grade. The original Video file type menu
 still selects the recording format.
 
 This feature joins request admission, rate estimates, sample description,

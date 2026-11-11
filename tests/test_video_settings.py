@@ -37,6 +37,9 @@ class VideoSettingsTests(unittest.TestCase):
                 wrapper.write_text('#include "fenestra_video_settings.h"\n'
                     '__declspec(dllexport) int test_read(uint32_t w,uint32_t *t){return fx_h265_settings_read(w,t); }\n'
                     '__declspec(dllexport) int test_write(uint32_t w,uint32_t t,uint32_t *o){return fx_h265_settings_write(w,t,o); }\n')
+                with wrapper.open('a') as exports:
+                    exports.write('__declspec(dllexport) int test_prores_read(uint32_t w,uint32_t *g){return fx_prores_settings_read(w,g); }\n'
+                        '__declspec(dllexport) int test_prores_write(uint32_t w,uint32_t g,uint32_t *o){return fx_prores_settings_write(w,g,o); }\n')
                 sources.append(str(wrapper))
             subprocess.run([cc,'-std=c11','-shared',*([] if windows else ['-fPIC']),'-Wall','-Wextra','-Werror',
                 '-I',str(ROOT/'include'),*sources,'-o',str(library)],check=True)
@@ -46,6 +49,11 @@ class VideoSettingsTests(unittest.TestCase):
                 write=getattr(api,'test_write' if windows else 'fx_h265_settings_write')
                 read.argtypes=[ctypes.c_uint32,ctypes.POINTER(ctypes.c_uint32)]
                 write.argtypes=[ctypes.c_uint32,ctypes.c_uint32,ctypes.POINTER(ctypes.c_uint32)]
+                prores_read=getattr(api,'test_prores_read' if windows else 'fx_prores_settings_read')
+                prores_write=getattr(api,'test_prores_write' if windows else 'fx_prores_settings_write')
+                prores_read.argtypes=read.argtypes
+                prores_write.argtypes=write.argtypes
+                prores_cases=0
                 cases=0
                 for version in (0xa000,0xc000):
                     for prores in range(4):
@@ -56,26 +64,45 @@ class VideoSettingsTests(unittest.TestCase):
                                 observed=ctypes.c_uint32(99)
                                 self.assertEqual(read(prior,ctypes.byref(observed)),1)
                                 self.assertEqual(observed.value,h265)
+                                self.assertEqual(prores_read(prior,ctypes.byref(observed)),1)
+                                self.assertEqual(observed.value,prores)
+                                for grade in range(4):
+                                    encoded=ctypes.c_uint32(0xdeadbeef)
+                                    self.assertEqual(prores_write(prior,grade,ctypes.byref(encoded)),1)
+                                    self.assertEqual(encoded.value,word((payload&~3)|grade))
+                                    prores_cases+=1
                                 for tier in range(5):
                                     encoded=ctypes.c_uint32(0xdeadbeef)
                                     self.assertEqual(write(prior,tier,ctypes.byref(encoded)),1)
                                     self.assertEqual(encoded.value,word((payload&~28)|(tier<<2)))
                                     cases+=1
                 self.assertEqual(cases,600)
+                self.assertEqual(prores_cases,480)
                 for quality in range(4):
                     legacy=1|(0x63<<8)|(quality<<16)|(crc(bytes((0x63,quality)))<<24)
                     encoded=ctypes.c_uint32()
                     self.assertEqual(write(legacy,3,ctypes.byref(encoded)),1)
                     self.assertEqual(encoded.value,word(0xa000|quality|(3<<2)))
+                    grade=ctypes.c_uint32(99)
+                    self.assertEqual(prores_read(legacy,ctypes.byref(grade)),1)
+                    self.assertEqual(grade.value,quality)
+                    self.assertEqual(prores_write(legacy,3,ctypes.byref(encoded)),1)
+                    self.assertEqual(encoded.value,word(0xa003))
                 for prior in (0,1):
                     encoded=ctypes.c_uint32()
                     self.assertEqual(write(prior,4,ctypes.byref(encoded)),1)
                     self.assertEqual(encoded.value,word(0xa010,prior))
+                    self.assertEqual(prores_write(prior,2,ctypes.byref(encoded)),1)
+                    self.assertEqual(encoded.value,word(0xa002,prior))
                 for prior in (0x12345601,word(0xa000)^0x1000000,word(0xa000|(5<<2)),word(0xa000|(3<<8)),word(0xa000,2)):
                     encoded=ctypes.c_uint32(0xdeadbeef)
                     self.assertEqual(write(prior,2,ctypes.byref(encoded)),0)
                     self.assertEqual(encoded.value,0xdeadbeef)
+                    self.assertEqual(prores_write(prior,2,ctypes.byref(encoded)),0)
+                    self.assertEqual(encoded.value,0xdeadbeef)
                 encoded=ctypes.c_uint32(0xdeadbeef)
+                self.assertEqual(prores_write(1,4,ctypes.byref(encoded)),0)
+                self.assertEqual(encoded.value,0xdeadbeef)
                 self.assertEqual(write(1,5,ctypes.byref(encoded)),0)
                 self.assertEqual(encoded.value,0xdeadbeef)
             finally:

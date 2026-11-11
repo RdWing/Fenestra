@@ -31,7 +31,7 @@ def verify(application, build):
             hashlib.sha256(image).hexdigest() != receipt['candidate_sha256']):
         raise ValueError('H.265 check input differs from the build receipt')
     symbols = receipt['symbols']
-    layout = struct.unpack_from('<8I', image, symbols['fx_z63_h265_layout'] - BASE)
+    layout = struct.unpack_from('<9I', image, symbols['fx_z63_h265_layout'] - BASE)
     if layout[:2] != (0x46584835, 2):
         raise ValueError('H.265 observation layout differs')
     cpu = Uc(UC_ARCH_ARM64, UC_MODE_ARM)
@@ -91,12 +91,14 @@ def verify(application, build):
         elif pc == 0x41003538:
             if save_behavior == 'reset':
                 put(0xa03f0eef4, 1)
+            elif save_behavior == 'recall-prores':
+                put(0xa03f0eef4, 0x56a00301)
             elif save_behavior == 'foreign':
                 put(0xa03f0eef4, 0x12345601)
             elif save_behavior == 'low-byte':
                 current, = struct.unpack('<I', mu.mem_read(0xa03f0eef4, 4))
                 put(0xa03f0eef4, current ^ 1)
-            result = 0 if save_behavior in ('failed', 'reset', 'foreign') else 1
+            result = 0 if save_behavior in ('failed', 'reset', 'foreign', 'recall-prores') else 1
         elif pc == symbols['fx_z63_video_h265_metadata_original']:
             metadata_calls += 1
             result = metadata_result
@@ -198,6 +200,22 @@ def verify(application, build):
                     uhd10_nominal.append(rate)
                 parameter_cases += 1
     assert eligible_rows == 42
+    # Independently fence each native worker and wrapper counter. An unchanged
+    # effective tier alone must not hide a premature persisted-word write.
+    admission_cases = 0
+    for address, busy in ((0xa048bb044, 2), (0xa03324ce0, 1),
+                          (0xa03324dc8, 1), (0xa03d42100, 3),
+                          (0xa03d42108, 12),
+                          (tier_state+layout[6], 1),
+                          (tier_state+layout[6]+4, 1)):
+        previous = bytes(cpu.mem_read(address, 4))
+        put(address, busy)
+        for choice in range(5):
+            persisted = bytes(cpu.mem_read(0xa03f0eef4, 4))
+            assert resource(3, choice) == 5 and effective() == 4
+            assert bytes(cpu.mem_read(0xa03f0eef4, 4)) == persisted
+            admission_cases += 1
+        cpu.mem_write(address, previous)
     for save_behavior in ('failed', 'suppressed'):
         prior = bytes(cpu.mem_read(0xa03f0eef4, 4))
         assert resource(3, 2) == 2 and effective() == 4
@@ -232,6 +250,85 @@ def verify(application, build):
         assert bytes(cpu.mem_read(mode, 256)) == source and bytes(cpu.mem_read(out, 256)) == expected
         metadata_cases += 1
     put(tier_state+layout[4], 4)
+    video_layout = struct.unpack_from('<9I', image, symbols['fx_z63_video_layout']-BASE)
+    prores_state = state+video_layout[3]
+    prores_owner=ram+0xc000
+    put(prores_owner+layout[7],1)
+    put(prores_state+video_layout[6], 3)
+    def prores(op, choice=None):
+        cpu.mem_write(request, bytes(816))
+        if choice is not None:
+            cpu.mem_write(request+12, struct.pack('<I',16))
+            cpu.mem_write(request+32, struct.pack('<Q',2))
+            cpu.mem_write(request+48, struct.pack('<4I',1,16,1,choice))
+        return call(symbols['fx_z63_video_resource'],0,op,0,prores_owner,8,cookie+16,request,reply)
+    def prores_effective():
+        return struct.unpack('<I',cpu.mem_read(prores_state+video_layout[4],4))[0]
+    assert prores(1)==0
+    put(state+layout[8],1)
+    assert prores(3,2)==5
+    assert prores(2)==5
+    cpu.mem_write(request,bytes(816))
+    cpu.mem_write(request+12,struct.pack('<I',16))
+    cpu.mem_write(request+32,struct.pack('<Q',2))
+    cpu.mem_write(request+48,struct.pack('<4I',1,16,3,1))
+    cpu.mem_write(cookie+32,struct.pack('<Q',9))
+    assert call(symbols['fx_z63_raw_resource'],0,3,0,owner,9,cookie+32,request,reply)==5
+    put(state+layout[8],0)
+    for choice in range(5):
+        before=struct.unpack('<I',cpu.mem_read(0xa03f0eef4,4))[0]
+        assert prores(3,choice)==0 and prores_effective()==choice
+        after=struct.unpack('<I',cpu.mem_read(0xa03f0eef4,4))[0]
+        assert (before&0xfffffcff)==(after&0x00fffcff)|(before&0xff000000)
+        assert ((after>>8)&3)==max(0,choice-1)
+        assert prores(2)==0 and prores_effective()==0
+        assert prores(1)==0 and prores_effective()==(choice if choice>1 else 0)
+    for save_behavior in ('failed','suppressed'):
+        before=bytes(cpu.mem_read(0xa03f0eef4,4))
+        assert prores(3,2)==2 and prores_effective()==4
+        assert bytes(cpu.mem_read(0xa03f0eef4,4))==before
+    save_behavior='success'
+    assert prores(3,1)==0 and prores_effective()==1
+    for save_behavior in ('failed','suppressed'):
+        before=bytes(cpu.mem_read(0xa03f0eef4,4))
+        assert prores(3,2)==2 and prores_effective()==1
+        assert bytes(cpu.mem_read(0xa03f0eef4,4))==before
+    save_behavior='success'
+    assert prores(3,3)==0 and prores_effective()==3
+    save_behavior='reset'
+    assert resource(3,2)==2 and effective()==0 and prores_effective()==0
+    save_behavior='success'
+    assert resource(3,4)==0 and effective()==4
+    assert prores(3,1)==0 and prores_effective()==1
+    save_behavior='reset'
+    assert prores(3,2)==2 and prores_effective()==0 and effective()==0
+    assert bytes(cpu.mem_read(0xa03f0eef4,4))==struct.pack('<I',1)
+    save_behavior='success'
+    assert prores(2)==0
+    assert resource(3,4)==0 and effective()==4
+    assert prores(1)==0
+    assert prores(3,3)==0 and prores_effective()==3
+    put(prores_owner+layout[7],0)
+    save_behavior='reset'
+    assert resource(3,2)==2 and effective()==0 and prores_effective()==3
+    save_behavior='success'
+    assert prores(2)==0 and prores_effective()==0
+    put(prores_owner+layout[7],1)
+    assert resource(3,4)==0 and effective()==4
+    assert prores(1)==0 and prores_effective()==0
+    file_type=6
+    cpu.mem_write(request,bytes(816))
+    cpu.mem_write(request+12,struct.pack('<I',16))
+    cpu.mem_write(request+32,struct.pack('<Q',2))
+    cpu.mem_write(request+48,struct.pack('<4I',1,16,3,1))
+    cpu.mem_write(cookie+32,struct.pack('<Q',9))
+    assert call(symbols['fx_z63_raw_resource'],0,3,0,owner,9,cookie+32,request,reply)==0
+    save_behavior='recall-prores'
+    assert resource(3,0)==2 and effective()==0 and prores_effective()==0
+    assert struct.unpack('<I',cpu.mem_read(prores_state+video_layout[8],4))[0]==1
+    assert bytes(cpu.mem_read(0xa03f0eef4,4))==struct.pack('<I',0x56a00301)
+    file_type=3;save_behavior='success'
+    assert resource(3,4)==0 and effective()==4
     save_behavior = 'foreign'
     assert resource(3, 2) == 2 and effective() == 4
     assert bytes(cpu.mem_read(0xa03f0eef4, 4)) == struct.pack('<I', 0x12345601)
@@ -239,6 +336,8 @@ def verify(application, build):
                 selector_cases=ROW_COUNT*len(PERCENT), eligible_rows=eligible_rows,
                 preserved_rows=ROW_COUNT-eligible_rows, wrong_mode_refusals=6,
                 encoder_parameter_cases=parameter_cases,
+                independent_busy_fence_cases=admission_cases,
+                prores_persistence_choices=5, prores_failed_saves_preserved=True, nonrunning_peer_preserved=True, conflicting_recall_fails_closed=True,
                 metadata_wrapper_cases=metadata_cases, metadata_original_called_once=True,
                 uhd_2997_10bit_parameter_words=uhd10_targets,
                 uhd_2997_10bit_nominal_bps=uhd10_nominal,
