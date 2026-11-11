@@ -1,7 +1,7 @@
-/* Shared managed frontend for five-choice, session-scoped video services. */
+/* Shared managed frontend for five-choice video services. */
 enum {LIFE,OPEN,INFO,PAGE,CHOICE,STATUS_ROW,NOTE,MENU,EVENTS,SELECT,STATUS};
 static FxSdkClient client;
-static uint32_t phase,choice,polls,unavailable,menu_supported,status_dirty;
+static uint32_t phase,choice,polls,unavailable,menu_supported,status_dirty,persistent;
 static uint32_t selection_waiting;
 #ifdef FX_CHOICE_MODE_NOTE
 static uint32_t selection_refused;
@@ -30,7 +30,7 @@ static FxResult control(const FxServiceModule *api,uint32_t id) {
 #endif
         text(c.text,label,sizeof(c.text));
     }
-    if(id==4u){text(c.label,unavailable?"Requires updated core":"Experimental",sizeof(c.label));text(c.text,"Session only",sizeof(c.text));}
+    if(id==4u){text(c.label,unavailable?"Requires updated core":"Experimental",sizeof(c.label));text(c.text,unavailable?"Service unavailable":persistent?"Saved in camera":"Session only",sizeof(c.text));}
     return fx_sdk_ui(&client,api,&c);
 }
 int fenestra_module_entry(const FxModuleServices *base) {
@@ -65,7 +65,8 @@ int fenestra_module_entry(const FxModuleServices *base) {
             if(a.bytes!=sizeof(FxVideoQualityInfo))return 4;
             FxVideoQualityInfo info;for(uint32_t i=0u;i<sizeof(info);++i)((uint8_t *)&info)[i]=a.data[i];
             if(info.abi!=FX_VIDEO_QUALITY_ABI || info.bytes!=sizeof(info) || info.family!=FX_CHOICE_FAMILY || info.choices!=31u)return 5;
-            menu_supported=info.flags&FX_VIDEO_QUALITY_NATIVE_MENU;phase=PAGE;
+            menu_supported=info.flags&FX_VIDEO_QUALITY_NATIVE_MENU;
+            persistent=info.flags&FX_VIDEO_QUALITY_PERSISTENT;phase=PAGE;
         } else if(phase==STATUS) {
             if(a.bytes!=sizeof(status))return 6;
             FxVideoQualityStatus next;for(uint32_t i=0u;i<sizeof(next);++i)((uint8_t *)&next)[i]=a.data[i];

@@ -54,7 +54,7 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
         from z63_video import generate as generate_video
         video_returns=generate_video(profile,original,out)
         flags+=['-DFX_Z63_VIDEO=1','-mno-outline-atomics','-I',str(ROOT/'src/platform/z63_c201')]
-        sources+=['src/video_quality.c','src/platform/z63_c201/video_quality.c','src/platform/z63_c201/video_color.c','src/platform/z63_c201/video_menu.c','src/platform/z63_c201/video_hooks.S']
+        sources+=['src/video_quality.c','src/video_settings.c','src/platform/z63_c201/video_quality.c','src/platform/z63_c201/video_color.c','src/platform/z63_c201/video_menu.c','src/platform/z63_c201/video_hooks.S']
     if ui:
         if not runtime:raise ValueError('native UI requires the discovered worker runtime')
         flags+=['-DFX_Z63_UI=1','-DFX_NATIVE_UI_INPUT=1','-DFX_NATIVE_SCENE=1','-DFX_NATIVE_TASKS=1']

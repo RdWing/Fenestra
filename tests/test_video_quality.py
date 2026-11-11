@@ -25,6 +25,7 @@ class VideoQualityTests(unittest.TestCase):
             subprocess.run([str(binary)],check=True)
             subprocess.run([str(binary),'old-core'],check=True)
             subprocess.run([str(binary),'no-menu'],check=True)
+            subprocess.run([str(binary),'persistent'],check=True)
             for case in ('retry-cancel','retry-cancel-release','retry-latest','retry-release'):
                 with self.subTest(case=case):subprocess.run([str(binary),case],check=True)
     def test_native_owner_fence_and_deferred_stock_restoration(self):

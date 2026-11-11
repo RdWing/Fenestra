@@ -25,6 +25,7 @@ def verify_guards(original, candidate, receipt):
     regs = [getattr(arm, 'UC_ARM64_REG_X'+str(i)) for i in range(31)]
     state_regs = [*regs, arm.UC_ARM64_REG_SP, arm.UC_ARM64_REG_NZCV]
     initial = [0x10203040 + i*0x101 for i in range(31)] + [0x810000, 0xa0000000]
+    initial[0] = 0x800100
     initial[8] = 0x800000
 
     def execute(site, stop):

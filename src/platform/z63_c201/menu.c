@@ -321,7 +321,7 @@ void fx_z63_menu_lifecycle(uint32_t event) {
 FxNativePage *fx_z63_menu_page(uint32_t group,uint32_t id) {
     id&=65535u;State *s=state();
 #ifdef FX_Z63_VIDEO
-    if(group==2u && id==FX_Z63_VIDEO_MENU_PAGE)return fx_z63_video_menu_page();
+    if(group==2u && (id==FX_Z63_VIDEO_MENU_PAGE || id==FX_Z63_VIDEO_MENU_PAGE+1u))return fx_z63_video_menu_page(id);
 #endif
     if(group==2u && id>=PAGE && id<0x9500u){
 #ifdef FX_Z63_UI
@@ -385,7 +385,7 @@ uint64_t fx_z63_menu_navigate(uint32_t page) {
 #ifdef FX_Z63_UI
         if(page!=PAGE
 #ifdef FX_Z63_VIDEO
-           && page!=FX_Z63_VIDEO_MENU_PAGE
+           && page!=FX_Z63_VIDEO_MENU_PAGE && page!=FX_Z63_VIDEO_MENU_PAGE+1u
 #endif
            && !fx_z63_ui_page(page))return 0u;
 #else

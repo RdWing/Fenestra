@@ -31,8 +31,8 @@ def verify(application, build):
             hashlib.sha256(image).hexdigest() != receipt['candidate_sha256']):
         raise ValueError('H.265 check input differs from the build receipt')
     symbols = receipt['symbols']
-    layout = struct.unpack_from('<7I', image, symbols['fx_z63_h265_layout'] - BASE)
-    if layout[:2] != (0x46584835, 1):
+    layout = struct.unpack_from('<8I', image, symbols['fx_z63_h265_layout'] - BASE)
+    if layout[:2] != (0x46584835, 2):
         raise ValueError('H.265 observation layout differs')
     cpu = Uc(UC_ARCH_ARM64, UC_MODE_ARM)
     cpu.mem_map(BASE, (len(image)+4095) & ~4095)
@@ -45,10 +45,14 @@ def verify(application, build):
     cpu.mem_map(0xa048bb000, 4096)
     cpu.mem_map(0xa03324000, 4096)
     cpu.mem_map(0xa03d42000, 4096)
+    cpu.mem_map(0xa03f0e000, 4096)
     tier_state = state + layout[2]
     selected_source = None
     reading_selector = False
     file_type = 2
+    save_behavior = "success"
+    metadata_result = 1
+    metadata_calls = 0
 
     def put(at, value):
         cpu.mem_write(at, struct.pack('<I', value))
@@ -67,7 +71,7 @@ def verify(application, build):
         return cpu.reg_read(regs[0])
 
     def substitute(mu, pc, size, context):
-        nonlocal selected_source
+        nonlocal selected_source, metadata_calls
         if pc == COPY:
             if not reading_selector:
                 return
@@ -77,6 +81,25 @@ def verify(application, build):
             selected_source = src
             mu.mem_write(dst, bytes(mu.mem_read(src, length)))
             result = dst
+        elif pc == 0x41003bc0:
+            if save_behavior == 'suppressed':
+                mu.reg_write(arm.UC_ARM64_REG_PC, mu.reg_read(arm.UC_ARM64_REG_LR))
+                return
+            mu.reg_write(regs[0], 0)
+            mu.reg_write(arm.UC_ARM64_REG_PC, symbols['fx_z63_h265_save_result'])
+            return
+        elif pc == 0x41003538:
+            if save_behavior == 'reset':
+                put(0xa03f0eef4, 1)
+            elif save_behavior == 'foreign':
+                put(0xa03f0eef4, 0x12345601)
+            elif save_behavior == 'low-byte':
+                current, = struct.unpack('<I', mu.mem_read(0xa03f0eef4, 4))
+                put(0xa03f0eef4, current ^ 1)
+            result = 0 if save_behavior in ('failed', 'reset', 'foreign') else 1
+        elif pc == symbols['fx_z63_video_h265_metadata_original']:
+            metadata_calls += 1
+            result = metadata_result
         elif pc == symbols['fx_z63_menu_video']:
             result = state
         elif pc == 0x403ffcd0:
@@ -86,7 +109,7 @@ def verify(application, build):
         mu.reg_write(regs[0], result)
         mu.reg_write(arm.UC_ARM64_REG_PC, mu.reg_read(arm.UC_ARM64_REG_LR))
 
-    for address in (COPY, symbols['fx_z63_menu_video'], 0x403ffcd0, 0x40d32f74, 0x40d32f60):
+    for address in (COPY, symbols['fx_z63_menu_video'], 0x403ffcd0, 0x40d32f74, 0x40d32f60, 0x41003bc0, 0x41003538, symbols['fx_z63_video_h265_metadata_original']):
         cpu.hook_add(UC_HOOK_CODE, substitute, begin=address, end=address)
 
     def selector(inputs):
@@ -126,6 +149,7 @@ def verify(application, build):
     cpu.mem_write(TAIL, image[TAIL-BASE:TAIL-BASE+4])
     cpu.ctl_remove_cache(SELECTOR, TAIL+4)
 
+    put(owner+layout[7], 1)
     put(state+layout[3], 1)
     put(tier_state+layout[5], 3)
     assert resource(1) == 0
@@ -133,7 +157,7 @@ def verify(application, build):
         assert resource(3, 1) == 2 and effective() == 0
     file_type = 3
     put(0xa03d42100, 1)
-    assert resource(3, 1) == 0 and effective() == 0
+    assert resource(3, 1) == 5 and effective() == 0
     put(0xa03d42100, 2)
     assert resource(3, 1) == 0 and effective() == 1
     eligible_rows = 0
@@ -174,17 +198,53 @@ def verify(application, build):
                     uhd10_nominal.append(rate)
                 parameter_cases += 1
     assert eligible_rows == 42
+    for save_behavior in ('failed', 'suppressed'):
+        prior = bytes(cpu.mem_read(0xa03f0eef4, 4))
+        assert resource(3, 2) == 2 and effective() == 4
+        assert bytes(cpu.mem_read(0xa03f0eef4, 4)) == prior
+    prior, = struct.unpack('<I', cpu.mem_read(0xa03f0eef4, 4))
+    save_behavior = 'low-byte'
+    assert resource(3, 3) == 0 and effective() == 3
+    current, = struct.unpack('<I', cpu.mem_read(0xa03f0eef4, 4))
+    assert current & 255 == (prior & 255) ^ 1
+    save_behavior = 'reset'
+    assert resource(3, 2) == 2 and effective() == 0
+    assert bytes(cpu.mem_read(0xa03f0eef4, 4)) == struct.pack('<I', 1)
+    save_behavior = 'success'
+    assert resource(3, 4) == 0 and effective() == 4
     put(tier_state+layout[6], 1)
     assert resource(2) == 5 and effective() == 4
     put(tier_state+layout[6], 0)
     assert resource(2) == 0 and effective() == 0
+    assert resource(1) == 0 and effective() == 4
+    metadata_cases = 0
+    for tier, kind, alternate, quality, metadata_result in itertools.product(range(5), range(8), range(2), range(4), range(2)):
+        put(tier_state+layout[4], tier)
+        source = bytearray(256);struct.pack_into('<I', source, 0x20, kind);source[0xec] = alternate
+        destination = bytearray(b'\xa5'*256);struct.pack_into('<I', destination, 0xa8, quality)
+        cpu.mem_write(mode, bytes(source));cpu.mem_write(out, bytes(destination))
+        expected = bytearray(destination)
+        if metadata_result == 1 and kind in (2, 3) and not alternate and quality == 1 and tier:
+            struct.pack_into('<I', expected, 0xa8, 2)
+        before_calls = metadata_calls
+        assert call(symbols['fx_z63_h265_metadata'], mode, out) == metadata_result
+        assert metadata_calls == before_calls+1
+        assert bytes(cpu.mem_read(mode, 256)) == source and bytes(cpu.mem_read(out, 256)) == expected
+        metadata_cases += 1
+    put(tier_state+layout[4], 4)
+    save_behavior = 'foreign'
+    assert resource(3, 2) == 2 and effective() == 4
+    assert bytes(cpu.mem_read(0xa03f0eef4, 4)) == struct.pack('<I', 0x12345601)
     return dict(passed=True, candidate_sha256=receipt['candidate_sha256'],
                 selector_cases=ROW_COUNT*len(PERCENT), eligible_rows=eligible_rows,
                 preserved_rows=ROW_COUNT-eligible_rows, wrong_mode_refusals=6,
                 encoder_parameter_cases=parameter_cases,
+                metadata_wrapper_cases=metadata_cases, metadata_original_called_once=True,
                 uhd_2997_10bit_parameter_words=uhd10_targets,
                 uhd_2997_10bit_nominal_bps=uhd10_nominal,
                 idle_publication=True, deferred_stock_retirement=True,
+                failed_and_suppressed_saves_rollback=True, reset_wins=True,
+                ordinary_byte_preserved=True, foreign_word_preserved=True, saved_tier_reload=True,
                 qualification='Linked selector and service with substituted copy leaf, mutex, context and setting reads.')
 
 

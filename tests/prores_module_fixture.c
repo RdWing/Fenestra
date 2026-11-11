@@ -13,7 +13,7 @@ static FxVideoQualityPolicy policy;
 static FxPlatformOwner owner;
 static FxServiceOwner service_owner;
 static FxServiceExchange exchange;
-static uint32_t idle=1u,commits,busy_once,menu_attached,no_menu,wrong_mode;
+static uint32_t idle=1u,commits,busy_once,menu_attached,no_menu,wrong_mode,persistent_service;
 static FxResult resource(void *context,uint32_t op,const FxNamedBinding *descriptor,FxPlatformOwner *caller,
     uint64_t token,uint64_t *cookie,const FxServiceRequest *q,FxServiceReply *a) {
     (void)context;(void)descriptor;(void)caller;
@@ -22,7 +22,8 @@ static FxResult resource(void *context,uint32_t op,const FxNamedBinding *descrip
     if(op==FX_RESOURCE_DETACH || op==FX_RESOURCE_PANIC){menu_attached=0u;return fx_video_quality_release(&policy,token,idle);}
     assert(op==FX_RESOURCE_CALL && q && a);
     if(q->arg[2]==FX_VIDEO_QUALITY_QUERY) {
-        FxVideoQualityInfo info={1u,sizeof(info),FX_CHOICE_FAMILY,31u,(no_menu?0u:FX_VIDEO_QUALITY_NATIVE_MENU)|3u,0u};a->bytes=sizeof(info);memcpy(a->data,&info,sizeof(info));
+        FxVideoQualityInfo info={1u,sizeof(info),FX_CHOICE_FAMILY,31u,(no_menu?0u:FX_VIDEO_QUALITY_NATIVE_MENU)|FX_VIDEO_QUALITY_EXPERIMENTAL|
+            (persistent_service?FX_VIDEO_QUALITY_PERSISTENT:FX_VIDEO_QUALITY_SESSION_ONLY),0u};a->bytes=sizeof(info);memcpy(a->data,&info,sizeof(info));
     } else if(q->arg[2]==FX_VIDEO_QUALITY_MENU) {
         assert(!no_menu);assert(q->bytes==sizeof(FxVideoQualityMenu));FxVideoQualityMenu request;memcpy(&request,q->data,sizeof(request));
         assert(request.abi==1u && request.bytes==sizeof(request) && request.control==2u && !request.reserved);++menu_attached;
@@ -64,14 +65,13 @@ int main(int argc,char **argv) {
         .version=1u,.flags=FX_BIND_PROVIDER,.capabilities=FX_SDK_NATIVE,.address=1u};
     if(argc==2 && !strcmp(argv[1],"old-core"))descriptor.name="unavailable";
     no_menu=argc==2 && !strcmp(argv[1],"no-menu");
-#ifdef FX_H265_APP
-    no_menu=1u;
-#endif
+    persistent_service=argc==2 && !strcmp(argv[1],"persistent");
     FxPlatform platform={.abi=1u,.count=1u,.bindings=&descriptor,.io={.resource=resource}};
     assert(fx_platform_init(&owner,&platform,1u,1u,FX_SDK_CAPS)==FX_OK);
     fx_service_init(&service_owner,1u,1u,FX_SDK_CAPS,(FxServiceBackend){&owner,service,stop});
     fx_video_quality_init(&policy);policy.registered=3u;steps(160u);
     if(argc==2 && !strcmp(argv[1],"old-core")){assert(!(row(2u).flags&FX_UI_ENABLED) && !strcmp(row(4u).label,"Requires updated core"));return 0;}
+    assert(!strcmp(row(4u).text,persistent_service?"Saved in camera":"Session only"));
     assert(menu_attached==(no_menu?0u:1u) && row(2u).option_count==5u && (row(2u).flags&FX_UI_ENABLED));
     assert(!strcmp(row(3u).text,names[0]));
 #ifdef FX_H265_APP

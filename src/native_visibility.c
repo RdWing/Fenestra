@@ -47,12 +47,15 @@ FxResult fx_native_row_value_visibility(const FxNativeVisibilityProfile *p,FxNat
     return FX_OK;
 }
 FxResult fx_native_row_reflow(const FxNativeLayoutProfile *p,FxNativePage *page) {
+    return fx_native_row_reflow_limit(p,page,FX_NATIVE_ROWS);
+}
+FxResult fx_native_row_reflow_limit(const FxNativeLayoutProfile *p,FxNativePage *page,uint32_t maximum_rows) {
     if(!p || !ram(page,sizeof(*page)) || !p->current_page || !p->count_rows ||
        !p->highlight || !p->reset_check || !p->repair_selection || !p->place_rows ||
-       !p->resize_canvas || !p->scrollbar)return FX_ARGUMENT;
+       !p->resize_canvas || !p->scrollbar || !maximum_rows || maximum_rows>65535u)return FX_ARGUMENT;
     if(((void *(*)(void))p->current_page)()!=page)return FX_STATE;
     const FxNativeDescriptor *d=(const FxNativeDescriptor *)page->descriptor;
-    if(!ram(d,sizeof(*d)) || !d->count || d->count>FX_NATIVE_ROWS)return FX_STATE;
+    if(!ram(d,sizeof(*d)) || !d->count || d->count>maximum_rows)return FX_STATE;
     uint32_t index=fx_native_page_row_index(page);
     if(index>=d->count)return FX_STATE;
     const FxNativeRow *rows=(const FxNativeRow *)d->rows;

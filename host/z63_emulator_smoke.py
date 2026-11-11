@@ -148,13 +148,23 @@ def main():
     parser.add_argument('--demo-test',action='store_true',help='exercise the bundled character-rain module, native Back/blur and reopen')
     parser.add_argument('--video-menu-test',action='store_true',help='check the native Video quality (ProRes) row and its shared state')
     parser.add_argument('--video-test',action='store_true',help='exercise the ProRes module choice page and deferred native publication')
+    parser.add_argument('--h265-record-tier',type=int,choices=range(5),help='record, stop, and open playback with a selected H.265 tier')
+    parser.add_argument('--dma-copy-zero-model',action='store_true',help='explicitly enable the functional mode-zero DMA bridge in a compatible emulator')
+    parser.add_argument('--video-properties',type=Path,help='external semicolon-separated functional video model properties')
+    parser.add_argument('--h265-initial-tier',type=int,choices=range(5),default=0,help='expected restored tier at module attachment')
+    parser.add_argument('--export-snor',action='store_true',help='save the modeled NOR image after acknowledged shutdown')
     parser.add_argument('--h265-test',action='store_true',help='use the H.265 app and bitrate policy for the video selection control')
     parser.add_argument('--video-prepare',choices=('direct','legacy-half'),default='direct',help='recording control: switch directly to Movie, or reproduce the earlier still-half-press sequence')
     parser.add_argument('--video-record-choice',type=int,choices=range(5),help='video test: select one quality and observe native recording admission up to the expected strict codec-model stop')
     parser.add_argument('--expect', choices=('success', 'fault', 'rejected', 'sdk', 'services', 'runtime', 'ui', 'timeout', 'files', 'mapping', 'global'), default='success')
     args = parser.parse_args()
-    if args.h265_test and (not args.video_test or args.video_menu_test or args.video_record_choice is not None or args.module_count!=1):
+    if args.h265_test and (not args.video_test or args.video_record_choice is not None or args.module_count!=1):
         parser.error('--h265-test requires one module and the video selection control')
+    if args.h265_record_tier is not None and (not args.h265_test or not args.video_menu_test or not args.video_properties):
+        parser.error('--h265-record-tier requires H.265/native-menu controls and explicit --video-properties')
+    if args.dma_copy_zero_model and args.h265_record_tier is None:parser.error('--dma-copy-zero-model requires --h265-record-tier')
+    if args.video_properties and args.h265_record_tier is None:parser.error('--video-properties requires --h265-record-tier')
+    if args.export_snor and not args.shutdown_test:parser.error('--export-snor requires --shutdown-test')
     if args.panic_test and (not args.native_menu_test or args.expect!='fault'):
         parser.error('--panic-test requires --native-menu-test --expect fault')
     if args.panic_peer_test and (not args.panic_test or args.module_count!=2):
@@ -220,6 +230,13 @@ def main():
             'mcu-image=' + str(args.mcu.resolve(strict=True)), 'z9-capture=on', 'cfexpress=on',
             'z9-capture-raw=' + str(args.raw.resolve(strict=True)), 'sio-sink=9:8:7',
             'imu-mg=1000:0:0', 'scanout-dump=' + str(out / 'frame.ppm')])
+        if args.dma_copy_zero_model:machine+=',dma-copy-zero-model=on'
+        if args.video_properties:
+            properties=args.video_properties.read_text().strip().split(';')
+            if not properties or any(not re.fullmatch(r'[a-z0-9-]+=[a-zA-Z0-9:._+-]+',value) for value in properties):
+                raise ValueError('invalid functional model property list')
+            machine+=',z9-capture-props='+';'.join(properties)
+            (out/'video-model-properties.txt').write_text(';'.join(properties)+'\n')
         if args.video_record_choice is not None or args.video_menu_test:
             # Video-format transitions and movie overlays contain separately unmodeled GFX commands. Keep
             # CODEC strict; this control qualifies request data, not drawing.
@@ -236,8 +253,10 @@ def main():
             '-qmp', 'unix:' + str(sock) + ',server=on,wait=off',
             '-plugin', str(args.plugin.resolve(strict=True)) + ',out=' + str(out / 'calls.log') +
             ',call=' + ':'.join([*[hex(symbols[name]) for name in observed],
+                *(['0x407ebf20'] if args.h265_record_tier is not None else []),
                 *(['0x40250af8','0x402514e8','0x4032a2dc','0x4032a2e0'] if args.reader_test else []),
                 *(['0x403204d0','0x40c15bfc','0x403222e0','0x40322308','0x40321d7c','0x40323028','0x40322498','0x40322900','0x40320724','0x40320820'] if args.ptp_client else [])])]
+        (out/'command.json').write_text(json.dumps(command,indent=2)+'\n')
         start = time.monotonic()
         with (out / 'qemu.log').open('wb') as log:
             process = subprocess.Popen(command, stdout=log, stderr=log)
@@ -527,7 +546,7 @@ def main():
                             policy_offset=meta[3]
                             if args.h265_test:
                                 h265_layout=struct.unpack_from('<7I',image,symbols['fx_z63_h265_layout']-base)
-                                if h265_layout[:2]!=(0x46584835,1):raise RuntimeError('H.265 policy layout differs')
+                                if h265_layout[0]!=0x46584835 or h265_layout[1] not in (1,2):raise RuntimeError('H.265 policy layout differs')
                                 policy_offset=h265_layout[2]
                             def video_state():
                                 policy=read64(0xa02912e10+80)+meta[2]+policy_offset
@@ -535,14 +554,27 @@ def main():
                                 return dict(effective=u32(meta[4]),requested=u32(meta[5]),registered=u32(meta[6]),
                                     movie=u32(meta[7]),capture=u32(meta[7]+4),fault=u32(meta[8]))
                             initial=video_state()
-                            if initial['effective'] or initial['requested'] or initial['fault']:
+                            expected_initial=args.h265_initial_tier if args.h265_test else 0
+                            if initial['effective']!=expected_initial or initial['requested']!=expected_initial or initial['fault']:
                                 raise RuntimeError('Video module did not begin at Stock')
-                            selections=[];cursor=0
+                            selections=[];cursor=initial['requested']
                             choices=((1,2,3,4,0,4) if args.shutdown_test else (1,2,3,4,0)) if args.video_record_choice is None else (args.video_record_choice,)
+                            if args.h265_record_tier is not None:choices=(0,args.h265_record_tier) if args.h265_record_tier else (1,0)
                             for selected in choices:
                                 keypress('ok')
+                                picker=view()>>16
+                                if picker==0x7100:raise RuntimeError('Video app selector did not open')
+                                leaf=int(json.loads((out/'native-views.jsonl').read_text().splitlines()[-1])['chain'][-1],16)
+                                cursor=(read64(leaf+48)>>16)&65535
+                                if cursor>5:raise RuntimeError('Video app selector cursor differs')
                                 for _ in range(abs(selected-cursor)):keypress('down' if selected>cursor else 'up')
                                 keypress('ok');time.sleep(1)
+                                for retry in range(3):
+                                    current=view()>>16
+                                    if current==0x7100:break
+                                    if current!=picker:raise RuntimeError('Video app selection changed page unexpectedly')
+                                    keypress('ok');time.sleep(1)
+                                else:raise RuntimeError('Video app selection did not close the picker')
                                 deadline=time.monotonic()+8
                                 while time.monotonic()<deadline:
                                     state=video_state()
@@ -693,18 +725,22 @@ def main():
                         keypress('right')
                         if view()>>16!=266:raise RuntimeError('Video recording menu not reached')
                         descriptor=read64(root+80);rows=read64(descriptor+16);events=read64(descriptor+24)
-                        if descriptor==0xa028cae10 or read64(descriptor+32)&65535!=46:
+                        menu_layout=struct.unpack_from('<6I',image,symbols['fx_z63_video_menu_layout']-0x40160000)
+                        added_rows=2 if menu_layout[1]>=2 else 1
+                        menu_index=1 if args.h265_test else 0
+                        target_row=0x7f50+menu_index;target_page=0x7060+menu_index
+                        if descriptor==0xa028cae10 or read64(descriptor+32)&65535!=45+added_rows:
                             raise RuntimeError('ProRes row did not attach')
                         image=application.read_bytes();original=image[0x43cb3868-0x40160000:0x43cb3868-0x40160000+45*44]
-                        copied=read_bytes(rows,46*44)
-                        if copied[:10*44]+copied[11*44:]!=original:raise RuntimeError('Original Video rows changed')
+                        copied=read_bytes(rows,(45+added_rows)*44)
+                        if copied[:10*44]+copied[(10+added_rows)*44:]!=original:raise RuntimeError('Original Video rows changed')
                         original=image[0x43cb4028-0x40160000:0x43cb4028-0x40160000+45*8]
-                        copied_events=read_bytes(events,46*8)
-                        if copied_events[:10*8]+copied_events[11*8:]!=original:raise RuntimeError('Original Video events changed')
+                        copied_events=read_bytes(events,(45+added_rows)*8)
+                        if copied_events[:10*8]+copied_events[(10+added_rows)*8:]!=original:raise RuntimeError('Original Video events changed')
                         positions=[]
                         def root_position():
                             index=((read64(root+48)>>16)&65535)+(read64(root+88)&65535)
-                            if index>=46:raise RuntimeError('Native selection outside copied rows')
+                            if index>=45+added_rows:raise RuntimeError('Native selection outside copied rows')
                             identity=int.from_bytes(copied[index*44+24:index*44+28],'little')
                             positions.append(dict(index=index,row=identity,selected=(read64(root+48)>>16)&65535,tail=read64(root+88)&65535));(out/'video-menu-positions.json').write_text(json.dumps(positions,indent=2)+'\n')
                             return identity
@@ -718,7 +754,7 @@ def main():
                             surface=read64(root+32);node=read64(surface+0xc8);row=0
                             for _ in range(min(read64(surface+0xd8)&0xffffffff,64)):
                                 obj=read64(node+16)
-                                if read64(obj)&0xffffffff==0x7f50:row=obj;break
+                                if read64(obj)&0xffffffff==target_row:row=obj;break
                                 node=read64(node+8)
                             if not row:raise RuntimeError('ProRes native widget absent')
                             node=read64(row+0x128);parts=[]
@@ -731,34 +767,61 @@ def main():
                                 refresh_result=(read64((menu+layout[4])&~7)>>((layout[4]&7)*8))&0xffffffff,
                                 observed_page=hex(read64(menu+layout[5])),callbacks=hex(read64(root+40))))
                             (out/'video-menu-widgets.json').write_text(json.dumps(native_widgets,indent=2)+'\n')
+                            if native_widgets[-1]['refresh_result']:raise RuntimeError('Native menu preparation failed: '+repr(native_widgets[-1]))
                             if ((2<<32)|expected) not in [part['resource'] for part in parts]:
                                 raise RuntimeError('Native ProRes value binding differs: '+repr(parts))
-                        native_widgets=[];text_base=int.from_bytes(copied[10*44:10*44+4],'little')
-                        seek(0x7f50,'down');native_value(text_base+7)
-                        qmp('screendump',{'filename':str(out/'video-menu-disabled.ppm')})
-                        for button in ('right','ok'):
-                            keypress(button)
-                            if view()>>16!=266:raise RuntimeError('Disabled ProRes row opened')
-                        seek((12394,12728),'up');keypress('right')
-                        if view()>>16!=278:raise RuntimeError('File type selector not reached')
-                        keypress('up');keypress('up');keypress('ok')
-                        if view()>>16==278:
-                            qmp('screendump',{'filename':str(out/'file-type-warning.ppm')});keypress('ok')
-                        if view()>>16!=266:raise RuntimeError('File type Back route differs')
-                        seek(0x7f50,'down');native_value(text_base+5)
+                        native_widgets=[];text_base=int.from_bytes(copied[(10+menu_index)*44:(10+menu_index)*44+4],'little')
+                        seek(target_row,'down')
+                        if not args.h265_test:
+                            native_value(text_base+7)
+                            qmp('screendump',{'filename':str(out/'video-menu-disabled.ppm')})
+                            for button in ('right','ok'):
+                                keypress(button)
+                                if view()>>16!=266:raise RuntimeError('Disabled ProRes row opened')
+                            seek((12394,12728),'up');keypress('right')
+                            if view()>>16!=278:raise RuntimeError('File type selector not reached')
+                            keypress('up');keypress('up');keypress('ok')
+                            if view()>>16==278:
+                                qmp('screendump',{'filename':str(out/'file-type-warning.ppm')});keypress('ok')
+                            if view()>>16!=266:raise RuntimeError('File type Back route differs')
+                        if args.h265_test:
+                            unchanged_format_state=video_state()
+                            seek((12394,12728),'up');keypress('right')
+                            if view()>>16!=278:raise RuntimeError('H.265 format guard control page absent')
+                            keypress('up');keypress('up');keypress('ok')
+                            if view()>>16==278:keypress('ok')
+                            if view()>>16!=266:raise RuntimeError('ProRes format guard transition differs')
+                            seek(target_row,'down');native_value(text_base+7)
+                            qmp('screendump',{'filename':str(out/'h265-disabled-prores.ppm')})
+                            for button in ('right','ok'):
+                                keypress(button)
+                                if view()>>16!=266:raise RuntimeError('Disabled H.265 row opened')
+                            if video_state()!=unchanged_format_state:raise RuntimeError('Format guard changed H.265 tier')
+                            seek((12394,12728),'up');keypress('right')
+                            if view()>>16!=278:raise RuntimeError('H.265 format restore page absent')
+                            keypress('down');keypress('down');keypress('ok')
+                            if view()>>16==278:keypress('ok')
+                            if view()>>16!=266:raise RuntimeError('H.265 format restore differs')
+                        seek(target_row,'down');native_value(text_base+1+video_state()['effective'])
                         qmp('screendump',{'filename':str(out/'video-menu-enabled.ppm')})
                         unchanged=video_state()
                         for cancel in ('left','back-row'):
                             keypress('right')
-                            if view()>>16!=0x7060:raise RuntimeError('Cancel selector not reached')
+                            if view()>>16!=target_page:raise RuntimeError('Cancel selector not reached')
                             if cancel=='left':keypress('left')
-                            else:keypress('down');keypress('ok')
+                            else:
+                                leaf=int(json.loads((out/'native-views.jsonl').read_text().splitlines()[-1])['chain'][-1],16)
+                                selected=(read64(leaf+48)>>16)&65535
+                                for _ in range(5-selected):keypress('down')
+                                keypress('ok')
                             if view()>>16!=266 or video_state()!=unchanged:
                                 raise RuntimeError('Native selector cancel changed state or route')
                         menu_states=[]
-                        for choice in (1,2,3,4,0,3):
+                        native_choices=(1,2,3,4,0,1) if args.h265_test else (1,2,3,4,0,3)
+                        if args.h265_record_tier is not None:native_choices=(args.h265_record_tier,)
+                        for choice in native_choices:
                             keypress('right')
-                            if view()>>16!=0x7060:raise RuntimeError('Native ProRes selector not reached')
+                            if view()>>16!=target_page:raise RuntimeError('Native ProRes selector not reached')
                             current=json.loads((out/'native-views.jsonl').read_text().splitlines()[-1]);page=int(current['chain'][-1],16)
                             selected=(read64(page+48)>>16)&65535
                             if selected>5:raise RuntimeError('ProRes selected row outside menu')
@@ -791,11 +854,120 @@ def main():
                         for _ in range(selected):keypress('up')
                         keypress('down');keypress('down');keypress('ok');keypress('ok');time.sleep(2)
                         if view()>>16!=0x7100:raise RuntimeError('ProRes app did not reopen')
-                        qmp('screendump',{'filename':str(out/'prores-app-after-native-lt.ppm')})
-                        if video_state()['requested']!=3:raise RuntimeError('App return changed the native choice')
+                        qmp('screendump',{'filename':str(out/('h265-app-after-native-60.ppm' if args.h265_test else 'prores-app-after-native-lt.ppm'))})
+                        if video_state()['requested']!=native_choices[-1]:raise RuntimeError('App return changed the native choice')
                         video_result['native_menu']=dict(original_rows_preserved=45,original_events_preserved=45,
-                            disabled_h265=True,choices=menu_states,app_reopened_with_lt=True,cancel_preserves_state=True,original_image_area_route=True,
+                            family='h265' if args.h265_test else 'prores422',wrong_format_disabled=True,choices=menu_states,app_reopened_with_native_choice=True,cancel_preserves_state=True,original_image_area_route=True,
                             model_overrides=['gfx-skip-unmodelled=on'],completed_encoding=False,physical_camera_tested=False,passed=True)
+                        (out/'video-quality.json').write_text(json.dumps(video_result,indent=2)+'\n')
+                    if args.h265_record_tier is not None:
+                        def u32(address):
+                            return (read64(address&~7)>>((address&7)*8))&0xffffffff
+                        def save_recording():
+                            (out/'h265-recording.json').write_text(json.dumps(recording,indent=2)+'\n')
+                        def model(name):
+                            return json.loads(qmp('qom-get',{'path':'/machine/z9lab','property':name}))
+                        def activity(label):
+                            state={name:u32(address) for name,address in (
+                                ('movie',0xa03324ce0),('outstanding',0xa03324dc8),
+                                ('capture',0xa048bb044),('pipeline',0xa03d42100),('class',0xa03d42108))}
+                            state['native_idle']=(not any(state[name] for name in ('movie','outstanding','capture')) and
+                                ((state['pipeline']==2 and state['class']!=12) or (state['pipeline']==0 and state['class']==0)))
+                            recording['activity'].append(dict(label=label,**state));save_recording()
+                            return state
+                        def seek_current(target):
+                            for _ in range(48):
+                                view();leaf=int(json.loads((out/'native-views.jsonl').read_text().splitlines()[-1])['chain'][-1],16)
+                                descriptor=read64(leaf+80);count=read64(descriptor+32)&65535
+                                row_data=read64(descriptor+16)
+                                index=((read64(leaf+48)>>16)&65535)+(read64(leaf+88)&65535)
+                                if not 1<=count<=48 or index>=count:raise RuntimeError('recording menu selection bounds')
+                                ids=[u32(row_data+i*44+24) for i in range(count)]
+                                targets=target if isinstance(target,tuple) else (target,)
+                                admitted=[ids.index(item) for item in targets if item in ids]
+                                if not admitted:raise RuntimeError('recording menu target absent: '+repr(target))
+                                recording.setdefault('navigation',[]).append(dict(page=hex(leaf),index=index,row=ids[index],targets=targets))
+                                save_recording()
+                                if ids[index] in targets:return
+                                nearest=min(admitted,key=lambda value:abs(value-index))
+                                keypress('down' if nearest>index else 'up')
+                            raise RuntimeError('recording menu target unreachable')
+                        recording=dict(tier=args.h265_record_tier,activity=[],microphone_off=False,
+                            dma_copy_zero_model=args.dma_copy_zero_model,
+                            model_properties_sha256=hashlib.sha256(args.video_properties.read_bytes()).hexdigest(),
+                            model_scope='Functional hardware models, host HEVC codec and synthetic pixels; silent short clip. No camera qualification.')
+                        keypress('left');keypress('left')
+                        if view()>>16!=0x7000:raise RuntimeError('Recording app Back route differs')
+                        keypress('up');keypress('up');keypress('down');keypress('ok')
+                        if view()>>16!=690:raise RuntimeError('Recording app did not return to Setup')
+                        for _ in range(3):
+                            keypress('menu');qmp('screendump',{'filename':str(out/'before-recording-menu.ppm')})
+                            if scanout_fraction(out/'before-menu.ppm',out/'before-recording-menu.ppm')>=.9:break
+                        else:raise RuntimeError('Recording app did not return to live view')
+                        keypress('menu');keypress('left');keypress('left')
+                        for _ in range(3):keypress('up')
+                        keypress('right')
+                        if view()>>16!=266:raise RuntimeError('Recording Video menu not reached')
+                        seek_current((12394,12728));keypress('right')
+                        if view()>>16!=278:raise RuntimeError('H.265 recording file type page absent')
+                        current_type=u32(0xa03f0eee0)
+                        if not 1<=current_type<=6:raise RuntimeError('Recording control file type is unknown')
+                        delta=current_type-3  # Original options descend from N-RAW (6) to AVC (1).
+                        for _ in range(abs(delta)):keypress('down' if delta>0 else 'up')
+                        keypress('ok')
+                        if view()>>16==278:keypress('ok')
+                        recording['file_type']=dict(before=current_type,requested=3,effective=u32(0xa03f0eee0))
+                        if view()>>16!=266 or recording['file_type']['effective']!=3:raise RuntimeError('Native H.265 10-bit selection differs')
+                        seek_current(0x2ee6);keypress('right');seek_current(0x2eea);keypress('ok')
+                        if u32(0xa03f0ef80)!=0:raise RuntimeError('Native Microphone off was not saved')
+                        recording['microphone_off']=True
+                        keypress('half');keypress('lever=video');time.sleep(10)
+                        frames=[model('raw-pipeline-state')['frames']];time.sleep(1);frames.append(model('raw-pipeline-state')['frames'])
+                        recording['live_view_before_record']=frames;save_recording()
+                        if frames[1]<frames[0]+10:raise RuntimeError('Model live view frozen before REC')
+                        qmp('screendump',{'filename':str(out/'h265-before-record.ppm')})
+                        keypress('movie');time.sleep(8)
+                        started=activity('started')
+                        if not any(started[name] for name in ('movie','outstanding','capture')):raise RuntimeError('No native recording work after REC')
+                        parameters=read_bytes(0xa02fce490,48)
+                        words=list(struct.unpack('<12I',parameters))
+                        recording['encoder_parameters']=words;save_recording()
+                        expected_rate=(187500,112500,84375,56250,37500)[args.h265_record_tier]
+                        if words[:6]!=[1,3840,2160,1001,30000,1000] or words[6]!=expected_rate or words[7]!=10 or words[11]!=10:
+                            raise RuntimeError('Recording encoder geometry, timing, depth or nominal tier differs')
+                        qmp('screendump',{'filename':str(out/'h265-recording.ppm')})
+                        keypress('movie');time.sleep(5)
+                        deadline=time.monotonic()+60
+                        while not activity('stop-drain')['native_idle']:
+                            if not qmp('query-status').get('running'):raise RuntimeError('Emulator stopped during recording drain')
+                            if time.monotonic()>=deadline:raise RuntimeError('Native movie Stop did not retire')
+                            time.sleep(3)
+                        recording['recording_stopped_and_drained']=True
+                        recording['codec_after_record']=model('wave5-vpu-state');save_recording()
+                        keypress('lever=photo');time.sleep(8);keypress('play');time.sleep(5)
+                        qmp('screendump',{'filename':str(out/'h265-playback-entry.ppm')})
+                        playback_calls=re.findall(r'call pc=0x407ebf20 x0=(0x[0-9a-f]+) x1=(0x[0-9a-f]+)',(out/'calls.log').read_text())
+                        if not playback_calls:raise RuntimeError('Native playback codec-class call not observed')
+                        source,obj=(int(value,16) for value in playback_calls[-1])
+                        if not all(0xa00000000<=value<0xa40000000 for value in (source,obj)):raise RuntimeError('Playback context bounds')
+                        flags=u32(obj+0x54)
+                        qmp('memsave',{'val':0xa03439ca0,'size':0x1d74,'filename':str(out/'playback-ui-record.bin')})
+                        qmp('memsave',{'val':0xa04a7a044,'size':0x3cc,'filename':str(out/'playback-selection.bin')})
+                        recording['playback']=dict(codec_class=(flags>>20)&7,quality_star=bool(flags&(1<<9)),
+                            source=hex(source),object=hex(obj),selected_word=u32(source),status=qmp('query-status'))
+                        recording['playback']['entry_verified']=True
+                        recording['playback']['moving_playback_qualified']=False
+                        recording['file_decode_audited']=False
+                        expected_star=args.h265_record_tier==0
+                        if (flags>>20)&7!=3 or bool(flags&(1<<9))!=expected_star:raise RuntimeError('Native H.265 playback quality differs')
+                        recording['codec_before_play']=model('wave5-vpu-state');save_recording()
+                        if qmp('query-status').get('running'):
+                            keypress('ok');time.sleep(8)
+                        recording['codec_after_play']=model('wave5-vpu-state')
+                        recording['playback']['after_play_status']=qmp('query-status')
+                        qmp('screendump',{'filename':str(out/'h265-playback-after-play.ppm')})
+                        save_recording()
+                        video_result['recording']=recording
                         (out/'video-quality.json').write_text(json.dumps(video_result,indent=2)+'\n')
                     if args.video_record_choice is not None:
                         # This seed starts at H.265 8-bit, fifth file-type
@@ -1080,6 +1252,11 @@ def main():
                             (out/'video-quality.json').write_text(json.dumps(video_result,indent=2)+'\n')
                     startup_result['passed']=True
                 elif args.shutdown_test:raise ValueError('--shutdown-test requires --startup-test')
+                if args.export_snor:
+                    qmp('stop')
+                    qmp('pmemsave',{'val':0x45980000,'size':0x2680000,'filename':str(out/'snor-after.bin')})
+                    exported=(out/'snor-after.bin').read_bytes()
+                    startup_result['exported_snor']=dict(bytes=len(exported),sha256=hashlib.sha256(exported).hexdigest())
                 qmp('screendump', {'filename': str(out / 'final.ppm')})
                 qmp('quit')
                 process.wait(timeout=10)

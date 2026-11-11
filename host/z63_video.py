@@ -55,6 +55,8 @@ def generate(profile, original, output):
                     delta=w&0x3ffffff
                     if delta&(1<<25):delta-=1<<26
                     if w>>26!=5 or not 0<=i+delta<len(words):raise ValueError('external Stock playback branch')
+        elif row['name']=='h265_metadata':
+            if size!=4 or word!=0x3943b008:raise ValueError('H.265 metadata entry differs')
         elif row['name']=='raw_matrix':
             if size!=4 or word!=0xd2855e08:raise ValueError('RAW matrix entry differs')
         elif size!=4 or not (word&0x3a000000==0x28000000 or word&0xffe00fff==0xf8000ffe or word&0xffc003ff==0xd10003ff):

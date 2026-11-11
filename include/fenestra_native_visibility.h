@@ -12,6 +12,7 @@ typedef struct {
 /* Original row placement, canvas sizing, selection and scrollbar primitives. No page-open callback,
  * navigation, GUI lock acquisition, drawing or compositor submission. */
 FxResult fx_native_row_reflow(const FxNativeLayoutProfile *,FxNativePage *);
+FxResult fx_native_row_reflow_limit(const FxNativeLayoutProfile *,FxNativePage *,uint32_t maximum_rows);
 /* Native GUI exclusion is held by the caller. Toggle native draw participation
  * only. Highlight/selection belongs to native navigation and is preserved;
  * child icons/check indicators retain their original factory attributes. */
