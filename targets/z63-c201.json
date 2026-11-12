@@ -644,15 +644,41 @@
   "text_relocation": {
     "evidence": "Original startup runs MAIN text in place, then copies each window's content to DRAM and remaps the whole window. Bytes a package places between copy_end and remap_end are replaced by unwritten DRAM. The in-place range is never remapped. Static trace, confirmed by a read-only page-table walk on a stock C2.01 camera.",
     "routines": [
-      {"address": 1092131584, "bytes": 364, "sha256": "cf987f8e041aa4cb5cff9612a6908478f77fa1802ead3093e0b8904269f08f01"},
-      {"address": 1092132016, "bytes": 156, "sha256": "15e10546fd4cee120387973c6602135de756628e6a805059a94c2af196c968d3"}
+      {
+        "address": 1092131584,
+        "bytes": 364,
+        "sha256": "cf987f8e041aa4cb5cff9612a6908478f77fa1802ead3093e0b8904269f08f01"
+      },
+      {
+        "address": 1092132016,
+        "bytes": 156,
+        "sha256": "15e10546fd4cee120387973c6602135de756628e6a805059a94c2af196c968d3"
+      }
     ],
     "windows": [
-      {"name": "W3", "begin": 1075216384, "copy_end": 1075400704, "remap_end": 1075400704},
-      {"name": "W1", "begin": 1075838976, "copy_end": 1083239400, "remap_end": 1086324736},
-      {"name": "W2", "begin": 1086324736, "copy_end": 1097241336, "remap_end": 1098907648}
+      {
+        "name": "W3",
+        "begin": 1075216384,
+        "copy_end": 1075400704,
+        "remap_end": 1075400704
+      },
+      {
+        "name": "W1",
+        "begin": 1075838976,
+        "copy_end": 1083239400,
+        "remap_end": 1086324736
+      },
+      {
+        "name": "W2",
+        "begin": 1086324736,
+        "copy_end": 1097241336,
+        "remap_end": 1098907648
+      }
     ],
-    "in_place_executable": {"begin": 1075404800, "end": 1075838976},
+    "in_place_executable": {
+      "begin": 1075404800,
+      "end": 1075838976
+    },
     "loader_places_padding_verified": false,
     "physical_install_qualified": false
   },
@@ -1893,7 +1919,7 @@
     "descriptor_slot": 42992741984,
     "original_descriptor": 42992489872,
     "state_min": 42949672960,
-    "state_max": 44023414712,
+    "state_max": 44023414704,
     "state_magic": 1180328781,
     "state_magic_offset": 64,
     "bootstrap_event": 20

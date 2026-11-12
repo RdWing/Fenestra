@@ -1,7 +1,10 @@
 /* Stateless guard-area CRC32 (IEEE) over the immutable core reservation.
  * Called only by generated guards, which save x16/x17 and the original LR.
  * All other registers and NZCV are preserved. No interrupt-mask change,
- * allocation, firmware call, core call, mutable latch or persistent write.
+ * allocation, firmware call, core call or persistent write. A read-only
+ * session check prevents new initialization/features after updater admission.
+ * An already-published shell must remain callable if update admission returns
+ * an error; its native menu pointers cannot be abandoned in place.
  * Parameters and the CRC table live beside this routine in copied stock text.
  * The linker forbids writable static storage in the checked core.
  * Input w16 == 1 bypasses the state gate only for the post-stock bootstrap.
@@ -17,6 +20,13 @@ fx_guard_integrity:
     mrs x9,nzcv
     str x9,[sp,#48]
     adr x9,fx_guard_parameters
+    ldr x13,[x9,#72]
+    cbz x13,5f
+    ldar w13,[x13]
+    cmp w13,#2
+    b.ne 5f
+    cbnz w16,2f                 /* Existing shell (mode 0) stays valid. */
+5:
     cmp w16,#1
     b.eq 4f
     ldr x12,[x9,#32]             /* Original Setup page's descriptor slot. */
@@ -36,6 +46,13 @@ fx_guard_integrity:
     ldr w13,[x12,#64]            /* State.magic, after native descriptor. */
     ldr w14,[x9,#64]
     cmp w13,w14
+    b.ne 2f
+    cmp w16,#2
+    b.ne 4f
+    add x13,x12,#76
+    ldar w13,[x13]              /* Feature entry opens only after commit. */
+    and w13,w13,#0xfffffffd      /* DRAINING retains existing native work. */
+    cmp w13,#1
     b.ne 2f
 4:
     ldp x17,x10,[x9]
@@ -69,6 +86,6 @@ fx_guard_integrity:
 .p2align 3
 .global fx_guard_parameters
 fx_guard_parameters:
-    .space 72
+    .space 80
 .global fx_guard_crc_table
 fx_guard_crc_table:

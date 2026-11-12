@@ -62,6 +62,9 @@ static void request_stop(FxZ63Runtime *s,uint32_t panic) {
 }
 static void run_work(void *context) {
     FxZ63Runtime *s=context;FxModuleDirectory io;
+    if(atomic_load(&s->stop)) {
+        atomic_store_explicit(&s->published,1u,memory_order_release);return;
+    }
     const FxPlatform *platform=fx_platform_target();
     FxResult r=fx_z63_directory_init(&s->directory,&io);
     if(r==FX_OK)r=fx_modules_discover(&io,platform->module_identity,CAPS,s->scratch,sizeof(s->scratch),&s->inventory,(FxIndexMemory){0,allocate,release});

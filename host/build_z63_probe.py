@@ -6,6 +6,8 @@ import struct
 import subprocess
 from build_z63_adapter import ROOT, load_application
 from z63_placement import check as check_placement, guards as build_guards, marker_address, MARKER
+from z63_placement import INTEGRITY_CODE,BOOTSTRAP_CODE,UPDATE_CODE
+from z63_activation import profile_for, enable_record, SHELL
 
 
 def build(application, output, linker, llvm_bin, module=None, menu=False, discovery=False, sdk=False, ptp=False, runtime=False, drawing=False, ui=False, video=False):
@@ -47,6 +49,7 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
              '-fno-unwind-tables', '-fno-asynchronous-unwind-tables',
              '-Wall', '-Wextra', '-Werror', '-I', str(out)]
     flags += ['-DFX_FREESTANDING=1', '-ffunction-sections', '-fdata-sections', '-I', str(ROOT / 'include')]
+    flags += ['-fstack-usage']
     sources = ['src/platform/z63_c201/sysctl_probe.c', 'src/platform/z63_c201/sysctl_trampoline.S']
     video_returns={}
     if video:
@@ -81,6 +84,8 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
         sources += ['src/platform/z63_c201/runtime.c','src/platform/z63_c201/module_worker.c','src/platform/z63_c201/discovery.c']
         sources += ['src/resident.c','src/resident_native.c']
         sources += ['src/platform/z63_c201/startup.c','src/startup.c','src/startup_files.c']
+        sources += ['src/activation.c','src/platform/z63_c201/activation.c']
+        (out/'z63_debug_identity.h').write_text('static const unsigned char fx_z63_debug_build[32]={0};\n')
     if ptp:
         if not sdk or not menu:
             raise ValueError('PTP experiment requires SDK and menu')
@@ -156,17 +161,23 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
         hooks.update({row['address']:row['symbol'] for row in profile['ui_calls']})
     if video:
         hooks.update({row['address']:row['symbol'] for row in profile['video_quality']['hooks']})
+    if runtime:
+        from z63_activation import ram_words,header as activation_header
+        early_calls={row['address'] for row in profile['ui_calls']} if ui else set()
+        if video:early_calls.update(row['address'] for row in profile['video_quality']['hooks'] if row.get('link'))
+        (out/'z63_ram_hooks.h').write_text(activation_header(ram_words(profile,original,hooks,early_calls)))
     from compiler_dependencies import dependencies, identity_configuration, finalize_identity
     objects=[];graph={};compilations={}
     for index,name in enumerate(sources):
         obj=out/('%02d.o'%index);dep=out/('%02d.d'%index)
-        command=[cc,*[f for f in flags if not(name.endswith('.S') and f=='-mgeneral-regs-only')],
+        command=[cc,*[f for f in flags if not(name.endswith('.S') and f in ('-mgeneral-regs-only','-fstack-usage'))],
                  '-MMD','-MF',str(dep),'-MT','fx_core','-c',str(ROOT/name),'-o',str(obj)]
         subprocess.run(command,check=True,cwd=ROOT)
         graph[name]=dependencies(dep,ROOT);compilations[name]=command;objects.append(str(obj))
     identity_inputs=[*sources,'host/build_z63_probe.py','host/build_z63_adapter.py','host/z63_bindings.py',
                      'host/compiler_dependencies.py','host/verify_z63_build.py','host/z63_package.py','host/z63_placement.py',
-                     'src/platform/z63_c201/guard_integrity.S','src/platform/z63_c201/guard_bootstrap.S','fenestra.py','targets/z63-c201.json','emulation/z63_probe.ld']
+                     'src/platform/z63_c201/guard_integrity.S','src/platform/z63_c201/guard_bootstrap.S',
+                     'src/platform/z63_c201/guard_update.S','host/z63_activation.py','fenestra.py','targets/z63-c201.json','emulation/z63_probe.ld']
     if video:identity_inputs+=['host/z63_video.py','host/r3dne_profile.py','modules/r3dne/profile.json']
     header=(out/'z63_debug_identity.h').relative_to(ROOT).as_posix()
     configuration={}
@@ -177,7 +188,7 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
             flags=[f.replace(str(out),'generated').replace(str(ROOT),'.') for f in flags],
             compiler=subprocess.check_output([cc,'--version'],text=True),
             linker=subprocess.check_output([str(linker),'--version'],text=True)))
-        if ptp:
+        if ptp or runtime:
             (out/'z63_debug_identity.h').write_text('static const unsigned char fx_z63_debug_build[32]={'+','.join(map(str,digest))+'};\n'+
                 'static const unsigned char fx_z63_debug_application[32]={'+','.join(map(str,bytes.fromhex(profile['application_sha256'])))+'};\n'+
                 'static const unsigned char fx_z63_debug_payload[32]={'+','.join(map(str,bytes.fromhex(profile['payload_sha256'])))+'};\n')
@@ -214,12 +225,16 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
     calls = {row['address'] for row in profile['ui_calls']} if ui else set()
     if video:
         calls.update(row['address'] for row in profile['video_quality']['hooks'] if row.get('link'))
-    guard_profile = profile if menu else {k:v for k,v in profile.items() if k!='late_initialization'}
-    guard_code, guard_table = build_guards(guard_profile, original, {a: (symbols[s], a in calls) for a, s in hooks.items()}, candidate[begin-base:end-base], symbols.get('fx_z63_system_after_start') if menu else None)
+    guard_profile = profile_for(profile, runtime) if menu else {k:v for k,v in profile.items() if k!='late_initialization'}
+    guard_code, guard_table = build_guards(guard_profile, original, {a: (symbols[s], a in calls) for a, s in hooks.items()}, candidate[begin-base:end-base], symbols.get('fx_z63_system_after_start') if menu else None, identity)
     guard_begin = profile['guard_region']['begin']
     candidate[guard_begin-base:guard_begin-base+len(guard_code)] = guard_code
-    for address in hooks:
-        delta = guard_table[address] - address
+    from z63_placement import updater_entries
+    flashed = {a:g for a,g in guard_table.items() if not runtime or a in SHELL}
+    updates = updater_entries(guard_profile, hooks) if runtime else {}
+    flashed.update(updates)
+    for address in flashed:
+        delta = flashed[address] - address
         if delta % 4 or not -(1 << 27) <= delta < (1 << 27):
             raise ValueError('hook branch out of range')
         candidate[address-base:address-base+4] = struct.pack('<I', (0x94000000 if address in calls else 0x14000000) | ((delta // 4) & 0x3ffffff))
@@ -233,7 +248,7 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
     restored[begin-base:begin-base+len(code)] = original[begin-base:begin-base+len(code)]
     restored[marker-base:marker-base+len(MARKER)] = original[marker-base:marker-base+len(MARKER)]
     restored[guard_begin-base:guard_begin-base+len(guard_code)] = original[guard_begin-base:guard_begin-base+len(guard_code)]
-    for address in hooks:
+    for address in flashed:
         restored[address-base:address-base+4] = original[address-base:address-base+4]
     if restored != original:
         raise ValueError('undeclared image change')
@@ -246,10 +261,26 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
                    compiler=subprocess.check_output([cc, '--version'], text=True).splitlines()[0],
                    linker=subprocess.check_output([str(linker), '--version'], text=True).splitlines()[0],
                    build_identity=identity.hex(),identity_consumers_rebuilt=rebuilt,
+                   activation=dict(format=2,permanent_hooks=[hex(a) for a in flashed],
+                       ram_hooks=[hex(a) for a in hooks if a not in SHELL],
+                       updater_guards={hex(a):hex(g) for a,g in updates.items()},
+                       manual_cold_start=True,verified_wake_restore=True) if runtime else None,
                    sources={name:hashlib.sha256((ROOT/name).read_bytes()).hexdigest() for name in identity_inputs
                             if not (ROOT/name).resolve().is_relative_to(out)},
                    generated={Path(name).relative_to(out.relative_to(ROOT)).as_posix():hashlib.sha256((ROOT/name).read_bytes()).hexdigest()
                               for name in identity_inputs if (ROOT/name).resolve().is_relative_to(out)},
                    module_sha256=hashlib.sha256(Path(module).read_bytes()).hexdigest() if module is not None else None)
+    frames=[]
+    for path in sorted(out.glob('*.su')):
+        for line in path.read_text().splitlines():
+            location,size,kind=line.split('\t')
+            frames.append(dict(function=location.rsplit(':',1)[-1],bytes=int(size),kind=kind))
+    receipt['memory_budget']=dict(core_reservation=end-begin,linked_core_bytes=len(code),
+        guard_reservation=profile['guard_region']['end']-guard_begin,
+        guard_executable_and_constants_bytes=8+len(INTEGRITY_CODE)+80+1024+(len(BOOTSTRAP_CODE) if menu else 0)+48*len(hooks)+(len(UPDATE_CODE) if runtime else 0),
+        guard_stack_bytes=96,bootstrap_stack_bytes=112,update_guard_stack_bytes=48 if runtime else 0,
+        compiler_frames=sorted(frames,key=lambda row:(-row['bytes'],row['function'])),
+        transitive_native_stack_and_hardware_timing_qualified=False)
     (out / 'probe.json').write_text(json.dumps(receipt, indent=2) + '\n')
+    if runtime:(out/'FX63ARM.BIN').write_bytes(enable_record(identity))
     return receipt

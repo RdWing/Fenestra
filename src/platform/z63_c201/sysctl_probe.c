@@ -1,4 +1,7 @@
 #include <stdint.h>
+#ifdef FX_Z63_RUNTIME
+#include "activation.h"
+#endif
 /* Entry/return probe for full-system bring-up. These observation points do not
  * allocate an owner, activate modules or change Nikon's event dispatch. */
 __attribute__((noinline)) void fx_z63_sysctl_before(uint32_t event,uint32_t sync) {
@@ -35,7 +38,14 @@ extern uint64_t fx_z63_system_original(void *,uint32_t);
 void fx_z63_system_after_start(void) {
 #ifdef FX_Z63_MENU
     extern void fx_z63_menu_install(void);
+#ifdef FX_Z63_RUNTIME
+    uint32_t lease=fx_z63_activation_shell_enter();
+    if(!lease)return;
+#endif
     fx_z63_menu_install();
+#ifdef FX_Z63_RUNTIME
+    fx_z63_activation_shell_leave(lease);
+#endif
 #elif !defined(FX_Z63_MODULE_PROBE)
     probe_task();
 #endif

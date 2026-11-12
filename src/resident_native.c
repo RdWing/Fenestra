@@ -31,7 +31,9 @@ static void release(void *context, void *memory) {
 FxResidentHost fx_native_resident_host(const FxPlatform *p) {
     return (FxResidentHost){.memory = {(void *)p, allocate, release},
                             .source_memory = {(void *)p, source_allocate, release},
+#ifdef FX_NATIVE_UI_INPUT
                             .refresh_ui = fx_native_ui_refresh_owner,
+#endif
                             .protect = fx_native_resident_protect};
 }
 FxResult fx_native_resident_protect(void *context, FxPlatformOwner *o, uint8_t *memory, uint32_t bytes,

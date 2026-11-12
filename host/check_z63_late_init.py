@@ -23,6 +23,7 @@ def verify(main, build, output):
     receipt=json.loads((build/'probe.json').read_text())
     if hashlib.sha256(image).hexdigest()!=receipt['candidate_sha256']:raise ValueError('candidate differs')
     m=Original(main,'z63');u=m.u;u.mem_write(0x40160000,image[:-2])
+    if receipt.get('activation'):u.mem_map(0xa17200000,0x30000)
     symbols=receipt['symbols'];guard=int(receipt['guards']['0x40d66ef0'],16)
     slot,old_descriptor=0xa02912e60,0xa028d5590
     fonts_slot,attributes_slot=0xa0305f980,0xa0305f990
@@ -32,7 +33,7 @@ def verify(main, build, output):
     core_begin,core_end=receipt['placement']['code_region']
     allocator=0x40d32d00
     consumers=(0x40d6cd84,0x40d6c630,0x40d6a168)
-    substitutes=(allocator,0x40d32d40,0x40d32e64,0x40d32f98,0x40d32f60,
+    substitutes=(allocator,0x40d32d40,0x40d32e64,0x40d32f98,0x40d32f60,0x40d32f74,
                  0x40d6efe8,0x40d6efe4,0x40c00204,*consumers)
     progress={}
 
@@ -51,6 +52,7 @@ def verify(main, build, output):
             assert progress['stock_returned']
             n=cpu.reg_read(arm.UC_ARM64_REG_X0);assert 0<n<0x400000,n
             progress['allocations']+=1
+            progress['allocation_bytes'].append(n)
             if progress['lose_claim'] and progress['allocations']==2:
                 m.put(slot,old_descriptor)
             if progress['foreign_fonts'] and progress['allocations']==3:
@@ -87,7 +89,7 @@ def verify(main, build, output):
     def trial(fail_at=0,mutex_failure=False,blank_core=False,lose_claim=False,bad_setup=False,
               foreign_fonts=False,foreign_attributes=False):
         progress.clear();progress.update(stock_returned=False,consumers=[],core_entries=0,
-            allocations=0,fail_at=fail_at,mutex_failure=mutex_failure,lose_claim=lose_claim,
+            allocations=0,allocation_bytes=[],fail_at=fail_at,mutex_failure=mutex_failure,lose_claim=lose_claim,
             foreign_fonts=foreign_fonts,foreign_attributes=foreign_attributes,next=arena+0x20000,publication=[])
         # Each trial gets original setup/font roots and fresh supplied heap.
         m.put(slot,old_descriptor);m.put(fonts_slot,fonts);m.put(attributes_slot,attributes)
@@ -111,13 +113,14 @@ def verify(main, build, output):
         assert u.reg_read(arm.UC_ARM64_REG_PC)==0x1ffff0,hex(u.reg_read(arm.UC_ARM64_REG_PC))
         value=u.reg_read(arm.UC_ARM64_REG_X0)
         assert value==1 and progress['stock_returned']
+        if receipt.get('activation'):assert m.get(0xa1722cfe0,'I')==0,'initializer stranded the clean update route'
         published=m.get(slot)!=old_descriptor
         if not published:
             assert m.get(fonts_slot)==fonts+(0x1000000 if foreign_fonts else 0)
             assert m.get(attributes_slot)==attributes+(0x1000000 if foreign_attributes else 0)
         return dict(fail_at=fail_at,mutex_failure=mutex_failure,blank_core=blank_core,lose_claim=lose_claim,bad_setup=bad_setup,
                     foreign_fonts=foreign_fonts,foreign_attributes=foreign_attributes,
-                    allocations=progress['allocations'],published=published,
+                    allocations=progress['allocations'],allocation_bytes=progress['allocation_bytes'],published=published,
                     publication=list(progress['publication']),core_entries=progress['core_entries'],
                     stock_consumers_completed=True,stock_result_preserved=True)
 
@@ -132,6 +135,47 @@ def verify(main, build, output):
     for options in ({'foreign_fonts':True},{'foreign_attributes':True},
                     {'lose_claim':True,'foreign_fonts':True,'foreign_attributes':True}):
         result=trial(**options);assert not result['published'];failures.append(result)
+    if receipt.get('activation'):
+        trial();m.put(0xa1722cfe0,2,'I')
+        def guarded_call(pc,*arguments):
+            u.reg_write(arm.UC_ARM64_REG_SP,0x1fe000);u.reg_write(arm.UC_ARM64_REG_LR,0x1ffff0)
+            for i in range(8):u.reg_write(arm.UC_ARM64_REG_X0+i,arguments[i] if i<len(arguments) else 0)
+            u.emu_start(pc,0x1ffff0,count=10000000)
+            assert u.reg_read(arm.UC_ARM64_REG_PC)==0x1ffff0
+            return u.reg_read(arm.UC_ARM64_REG_X0)
+        page=guarded_call(0x403edb18,2,0x7000)
+        assert page and m.get(page,'I')>>16==0x7000,'updater admission abandoned the published shell'
+        guarded_call(0x40339f30,0,3285,0x180100,0x180108)
+        assert m.get(0x180108,'I')==16
+        assert bytes(u.mem_read(m.get(0x180100),16))=='Fenestra'.encode('utf-16le')
+        # Run the real startup worker after updater admission. It must retire
+        # without opening files, then reject another command even if the
+        # fixture resets the arbitration word for the next independent test.
+        from host.elf_symbols import local_function
+        worker,_=local_function(build/'probe.elf','startup.c','worker')
+        boot_meta=struct.unpack_from('<7I',image,symbols['fx_z63_startup_layout']-0x40160000)
+        startup=m.get(slot)+boot_meta[2]
+        m.run(worker,startup)
+        assert m.get(startup+boot_meta[3],'I')==7 and m.get(startup+boot_meta[5],'I')==2
+        assert m.get(startup+boot_meta[6],'I')==1
+        m.put(0xa1722cfe0,0,'I')
+        assert m.run(symbols['fx_z63_startup_request'],startup,1)==2
+    busy_cases=0
+    if receipt.get('video') and receipt.get('activation'):
+        trial();owner=m.get(slot)
+        activation_meta=struct.unpack_from('<7I',image,symbols['fx_z63_activation_layout']-0x40160000)
+        video_meta=struct.unpack_from('<9I',image,symbols['fx_z63_video_layout']-0x40160000)
+        join_meta=struct.unpack_from('<10I',image,symbols['fx_z63_late_join_layout']-0x40160000)
+        video=owner+video_meta[2];gate=owner+activation_meta[3]
+        m.put(gate,3,'I') # Draining keeps the wrappers for outstanding native work.
+        for policy in join_meta[4:7]:
+            for member in (join_meta[8],join_meta[8]+4,0,4,20,32):
+                address=video+policy+member;m.put(address,1,'I')
+                assert m.run(symbols['activation_quiesced'],owner)==5
+                assert m.get(gate,'I')==3,'busy retirement closed the feature gate'
+                m.put(address,0,'I');busy_cases+=1
+        assert m.run(symbols['activation_quiesced'],owner)==0
+        assert m.get(gate,'I')==0
     trial()
     startup_layout=struct.unpack_from('<7I',image,symbols['fx_z63_startup_layout']-0x40160000)
     assert startup_layout[:2]==(0x46584236,1)
@@ -150,6 +194,14 @@ def verify(main, build, output):
     assert m.get(startup+startup_layout[6],'I')==1
     m.run(symbols['fx_z63_menu_lifecycle'],25)
     assert m.run(symbols['fx_z63_startup_start'],startup)==2
+    # A controller allocated before closure but published afterwards must
+    # inherit STOP before its task can begin filesystem discovery.
+    delayed_runtime=arena+0x1800000
+    u.mem_write(delayed_runtime,bytes(0x10000))
+    runtime_meta=struct.unpack_from('<5I',image,symbols['fx_z63_runtime_layout']-0x40160000)
+    count_offset=runtime_meta[4]
+    m.run(symbols['fx_z63_menu_set_runtime'],delayed_runtime)
+    assert m.get(delayed_runtime+count_offset+4,'I')==1,'late runtime missed shutdown'
     trial();allow_start[0]=True
     m.run(symbols['fx_z63_menu_lifecycle'],24)
     m.run(symbols['fx_z63_menu_lifecycle'],25)
@@ -157,6 +209,11 @@ def verify(main, build, output):
     report={'passed':True,'candidate_sha256':receipt['candidate_sha256'],'success':success,
             'failures':failures,'shutdown_before_first_start_blocks_late_mount':True,
             'card_removal_before_first_start_keeps_mount_admission':True,
+            'runtime_published_after_shutdown_inherits_stop':True,
+            'clean_update_route_released_after_all_initializer_returns':True,
+            'published_shell_lookup_and_text_survive_updater_admission':True,
+            'updater_session_retires_startup_worker_and_blocks_new_commands':True,
+            'busy_native_fields_refuse_hook_retirement':busy_cases,
             'task_start_fixture':'One supplied budget refusal checks mount admission; no task executes.',
             'scope':__doc__,'physical_camera_tested':False,
             'source_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),

@@ -50,6 +50,16 @@ def verify(application, build):
     cpu.mem_map(0xa02912000,4096)
     cpu.mem_write(0xa02912e60,struct.pack('<Q',root))
     cpu.mem_write(root+64,struct.pack('<II',0x465a634d,1))
+    if receipt.get('activation'):
+        # Supplied active RAM-text fixture. The flash artifact must still
+        # contain the original words; installation itself has separate tests.
+        cpu.mem_map(0xa17200000,0x30000)
+        cpu.mem_write(root+76,struct.pack('<I',1))
+        count=struct.unpack_from('<I',image,symbols['fx_z63_activation_count']-BASE)[0]
+        for i in range(count):
+            site,old,new=struct.unpack_from('<III',image,symbols['fx_z63_activation_words']-BASE+i*12)
+            if struct.unpack_from('<I',image,site-BASE)[0]!=old:raise ValueError('feature hook present in flash')
+            cpu.mem_write(site,struct.pack('<I',new))
     state = root+video_layout[2]
     regs = [getattr(arm, 'UC_ARM64_REG_X'+str(i)) for i in range(8)]
     cpu.mem_map(0xa048bb000, 4096)
@@ -151,6 +161,7 @@ def verify(application, build):
             cpu.mem_write(request+48, struct.pack('<4I', 1, 16, 4, selection))
         return call(symbols['fx_z63_h265_resource'], 0, op, 0, owner, 7, cookie, request, reply)
 
+    active_tail=bytes(cpu.mem_read(TAIL,4))
     cpu.mem_write(TAIL, original[TAIL-BASE:TAIL-BASE+4])
     samples = {}
     for inputs in itertools.product(range(2), range(2), range(4), range(13)):
@@ -158,7 +169,7 @@ def verify(application, build):
         index = (selected_source-ROWS)//ROW_BYTES
         samples.setdefault(index, (inputs, result))
     assert set(samples) == set(range(ROW_COUNT))
-    cpu.mem_write(TAIL, image[TAIL-BASE:TAIL-BASE+4])
+    cpu.mem_write(TAIL, active_tail)
     cpu.ctl_remove_cache(SELECTOR, TAIL+4)
 
     put(owner+layout[7], 1)

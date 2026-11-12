@@ -22,7 +22,7 @@ class GuardIntegrityTests(unittest.TestCase):
             subprocess.run([clang,'--target=aarch64-none-elf','-c',str(ROOT/'src/platform/z63_c201/guard_integrity.S'),'-o',str(obj)],check=True)
             subprocess.run([linker,'-m','aarch64elf','-Ttext=0','--entry=fx_guard_integrity',str(obj),'-o',str(elf)],check=True)
             subprocess.run([objcopy,'-O','binary',str(elf),str(binary)],check=True)
-            self.assertEqual(binary.read_bytes(),INTEGRITY_CODE+bytes(72))
+            self.assertEqual(binary.read_bytes(),INTEGRITY_CODE+bytes(80))
             subprocess.run([clang,'--target=aarch64-none-elf','-c',str(ROOT/'src/platform/z63_c201/guard_bootstrap.S'),'-o',str(obj)],check=True)
             subprocess.run([linker,'-m','aarch64elf','-Ttext=0','--entry=fx_boot_guard',str(obj),'-o',str(elf)],check=True)
             subprocess.run([objcopy,'-O','binary',str(elf),str(binary)],check=True)

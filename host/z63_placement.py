@@ -44,7 +44,7 @@ def check(profile, original):
     late = profile.get('late_initialization')
     if late and profile.get('target') == 'z63-c201':
         expected = dict(descriptor_slot=0xa02912e60, original_descriptor=0xa028d5590,
-                        state_min=0xa00000000, state_max=0xa40000000-72,
+                        state_min=0xa00000000, state_max=0xa40000000-80,
                         state_magic=0x465a634d, state_magic_offset=64, bootstrap_event=20)
         if late != expected:
             raise ValueError('late initialization binding differs from C2.01')
@@ -102,13 +102,14 @@ GUARD_WORDS = 8
 # guard_integrity.S linked at zero. All references are position independent.
 # The ARM regression assembles the source independently and checks these bytes.
 INTEGRITY_CODE = bytes.fromhex(
-    'e92bbca9eb3301a9ed3b02a909423bd5e91b00f9e90500101f06007160020054'
-    '2c1140f92c0200b48cfddfc82d1540f99f010debe00300549f0940f2a1030054'
-    '2d1940f99f010deb430300542d1d40f99f010debe80200548d4140b92e4140b9'
-    'bf010e6b61020054312940a94c815ff82d0d40f99f010debc10100542b1140b9'
-    '10008012ae0400102c1640388c01104a8c1d0012cd596cb8b021504a3f020aeb'
-    '43ffff54f003302a10020b4a0200001430008052e91b40f909421bd5ed3b42a9'
-    'eb3341a9e92bc4a8c0035fd61f2003d5'
+    'e92bbca9eb3301a9ed3b02a909423bd5e91b00f9690700102d2540f9ad0000b4'
+    'adfddf88bf09007141000054d00500351f060071400300542c1140f90c0300b4'
+    '8cfddfc82d1540f99f010debc00400549f0940f2810400542d1940f99f010deb'
+    '230400542d1d40f99f010debc80300548d4140b92e4140b9bf010e6b41030054'
+    '1f0a0071c10000548d310191adfddf88ad791e12bf05007161020054312940a9'
+    '4c815ff82d0d40f99f010debc10100542b1140b910008012ce0400102c164038'
+    '8c01104a8c1d0012cd596cb8b021504a3f020aeb43ffff54f003302a10020b4a'
+    '0200001430008052e91b40f909421bd5ed3b42a9eb3341a9e92bc4a8c0035fd6'
 )
 BOOTSTRAP_CODE = bytes.fromhex(
     'f047bfa9102040b91052005170000034f047c1a800000000f047c1a8e007bda9'
@@ -117,6 +118,14 @@ BOOTSTRAP_CODE = bytes.fromhex(
     '000000000000000000000000'
 )
 
+
+UPDATE_CODE = bytes.fromhex(
+    'f047bea9fe0b00f91000009470010035fe0b40f9f047c2a800000000f047bea9'
+    'fe0b00f90900009490000035fe0b40f9f047c2a800000000fe0b40f9f047c2a8'
+    '40008052c0035fd6e92bbfa9e901005830fd5f88d00000354a0080522afd1188'
+    '91ffff3510008052030000145f3f03d5100a0051297a0bd59f3f03d5e92bc1a8'
+    'c0035fd61f2003d50000000000000000'
+)
 
 def integrity_prefix(profile, core):
     begin, end = (profile['probe_code_region'][key] for key in ('begin', 'end'))
@@ -130,12 +139,13 @@ def integrity_prefix(profile, core):
         for _ in range(8):
             value = (value >> 1) ^ (0xedb88320 if value & 1 else 0)
         table.append(value)
-    assert len(INTEGRITY_CODE) == 208
+    assert len(INTEGRITY_CODE) == 256
     late = profile.get('late_initialization', {})
     return (MARKER + INTEGRITY_CODE + struct.pack('<QQII8s', begin, end,
             binascii.crc32(core), 0, MARKER) +
             struct.pack('<4QII', late.get('descriptor_slot', 0), late.get('original_descriptor', 0),
                         late.get('state_min', 0), late.get('state_max', 0), late.get('state_magic', 0), 0) +
+            struct.pack('<Q', profile.get('activation', {}).get('latch', 0)) +
             struct.pack('<256I', *table))
 
 
@@ -157,7 +167,15 @@ def marker_address(profile):
     return profile['probe_code_region']['end'] - len(MARKER)
 
 
-def guards(profile, original, hooks, core, boot_entry=None):
+def updater_entries(profile, hooks):
+    from z63_activation import UPDATE_SITES
+    at = profile['guard_region']['begin'] + 8 + len(INTEGRITY_CODE) + 80 + 1024
+    if profile.get('late_initialization'):at += len(BOOTSTRAP_CODE)
+    at += 48 * len(hooks)
+    return {UPDATE_SITES[0][0]: at, UPDATE_SITES[1][0]: at+0x1c}
+
+
+def guards(profile, original, hooks, core, boot_entry=None, build_identity=bytes(32)):
     """Guard every core entry with bounded marker/whole-reservation CRC32.
 
     The validator and its expected checksum live in copied original text,
@@ -176,6 +194,7 @@ def guards(profile, original, hooks, core, boot_entry=None):
         out += BOOTSTRAP_CODE
     table = {}
     video_hooks = {row['address']: row for row in profile.get('video_quality', {}).get('hooks', [])}
+    activation = profile.get('activation')
     for site in sorted(hooks):
         target, call = hooks[site]
         stub = g0 + len(out)
@@ -190,7 +209,8 @@ def guards(profile, original, hooks, core, boot_entry=None):
             raise ValueError('hook site instruction cannot be displaced')
         # Save scratch registers and the incoming link before BL validation.
         # CBNZ does not disturb restored NZCV. Both exits restore the exact SP.
-        words = [0xa9be47f0, 0xf9000bfe, 0x52800010, _branch(stub+12,g0+8,True),
+        mode = 2 if activation and site not in activation['permanent'] else 0
+        words = [0xa9be47f0, 0xf9000bfe, 0x52800010 | mode << 5, _branch(stub+12,g0+8,True),
                  0x35000090, 0xf9400bfe, 0xa8c247f0, _branch(stub+28,target),
                  0xf9400bfe, 0xa8c247f0]
         words += ([_branch(stub+40,callee),0xd4200000] if call or tail else
@@ -212,6 +232,22 @@ def guards(profile, original, hooks, core, boot_entry=None):
         out[offset+0x58:offset+0x68] = prologue
         struct.pack_into('<I',out,offset+0x68,_branch(bootstrap+0x68,site+16))
         table[site] = bootstrap
+    if activation:
+        from z63_activation import CONTROL, CONTROL_RAM, UPDATE_SITES
+        if activation != dict(control=CONTROL, latch=CONTROL_RAM,
+                              permanent=activation['permanent']):
+            raise ValueError('activation layout differs')
+        update = g0 + len(out)
+        code = bytearray(UPDATE_CODE)
+        for offset, (site, stock) in zip((0x18, 0x34), UPDATE_SITES):
+            if struct.unpack_from('<I', original, site-base)[0] != _branch(site, stock):
+                raise ValueError('updater admission preimage differs')
+            struct.pack_into('<I', code, offset, _branch(update+offset, stock))
+        struct.pack_into('<Q', code, len(UPDATE_CODE)-8, CONTROL_RAM)
+        out += code
+        if g0 + len(out) > CONTROL:
+            raise ValueError('activation guard reservation exhausted')
+        out += bytes(g1-g0-len(out))
     if g0 + len(out) > g1:
         raise ValueError('guard region exhausted')
     return bytes(out), table

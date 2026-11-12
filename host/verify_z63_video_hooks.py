@@ -27,6 +27,8 @@ def verify_guards(original, candidate, receipt):
         cpu.mem_map(0xa01000000,4096)
         cpu.mem_write(late['descriptor_slot'],struct.pack('<Q',0xa01000000))
         cpu.mem_write(0xa01000000+64,struct.pack('<I',late['state_magic']))
+        cpu.mem_write(0xa01000000+76,struct.pack('<I',1))
+    if receipt.get('activation'):cpu.mem_map(0xa17200000,0x30000)
     marker = receipt['placement']['code_region'][1] - 8
     marker_bytes = candidate[marker-base:marker-base+8]
     regs = [getattr(arm, 'UC_ARM64_REG_X'+str(i)) for i in range(31)]
@@ -52,6 +54,10 @@ def verify_guards(original, candidate, receipt):
         patched = candidate[site-base:site-base+4]
         word, = struct.unpack('<I', stock)
         is_call = word >> 26 == 0x25
+        if receipt.get('activation'):
+            from z63_placement import _branch
+            if patched!=stock:raise ValueError('feature hook was flashed before activation')
+            patched=struct.pack('<I',_branch(site,int(receipt['guards'][address],16),is_call))
         delta = word & 0x3ffffff
         if delta & (1 << 25):
             delta -= 1 << 26

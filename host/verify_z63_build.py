@@ -79,6 +79,7 @@ def verify(application, build, llvm_bin):
         copied.append(('fx_z63_navigate_original', profile['menu_hooks']['navigate']['address']))
     if report.get('ptp'):
         copied += [('fx_z63_ptp_original_'+n,r['address']) for n,r in profile['ptp_hooks'].items()]
+    if report.get('ptp') or report.get('runtime'):
         at = symbols['fx_z63_debug_build'] - begin
         if code[at:at+32] != bytes.fromhex(identity):
             raise ValueError('linked debug build identity differs')
@@ -90,7 +91,7 @@ def verify(application, build, llvm_bin):
         candidate_sha256=hashlib.sha256(candidate).hexdigest(), build_identity=identity,
         hooks=len(expected), displaced_windows=len(copied), source_inputs=len(inputs),
         original_reconstruction=True, linked_code_verified=True, do_not_flash=True,
-        placement=placement, guarded_hooks=len(expected),
+        placement=placement, guarded_hooks=len(expected),activation=report.get('activation'),
         updater_tested=False, physical_camera_tested=False)
 
 

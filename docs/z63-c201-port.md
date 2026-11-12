@@ -23,13 +23,42 @@ graphics owner and reacquiring a masked target on explicit resubmission. A
 twelve-package control starts and finishes twelve workers with 120 successful
 copied requests.
 
-Startup controls now include default-off autostart, two configuration slots,
-a retained boot guard and explicit clearing of a previous guard. Manual start,
-guard blocking/clearing, autostart, repeated configuration changes and native
-power-switch shutdown pass in the model. Readback verifies both slots' CRCs,
-generations and target identity, and confirms guard removal after clean stop.
-Loaded workers remain retained until reboot; guard clearing does not unload or
-restart a faulted worker.
+The current local activation candidate requires its generated `FX63ARM.BIN`
+in the card's `FENESTRA` directory, followed by **Activate Fenestra** after a
+cold start. The file binds activation to the exact engine build. Missing,
+malformed or other-build input leaves feature hooks stock. Earlier autostart
+and in-camera startup-guard clearing controls are superseded for this target;
+their historical test results do not qualify this activation design.
+
+The video candidate installs 29 feature hooks in checked RAM aliases after
+admission. The Setup shell and independent integrity/update guards remain
+permanent. **Deactivate Fenestra** stops new module work, retains callbacks
+while native work drains, and restores only owned words. No loaded native
+storage is freed. A card removal or uncertain cleanup requires a new session.
+
+Once activation claims a session, normal firmware-update starts are refused
+until a cold start re-copies text, including after deactivation or standby.
+The Fenestra page displays **Update: full restart required**. The native
+updater uses its existing synchronous refusal message; it does not have a
+Fenestra-specific explanation. To obtain a stock-only update session, remove
+the enable file on the computer, then perform a full power-switch restart.
+Removing the file while the camera remains running does not clear the lock.
+Physical update/recovery qualification is still pending.
+
+Shell initialization briefly reserves update admission and releases that
+reservation on every handled return, including construction refusal. Once a
+clean updater attempt is admitted, new initialization and feature activation
+stop. Published menu handlers remain callable if the updater returns an error;
+the startup worker retires, and normal update retries remain available.
+
+A verified retained-code wake may restore the previous activation only after
+original startup completion, both native wake decisions, the exact enable
+file and ownership checks. The retained update lock and code stores are
+explicitly cleaned to memory. Retained-code/reset-data instruction fixtures
+are separate from an actual camera standby cycle. A previous abnormal
+`fx63boot.flg` remains a refusal unless the verified retained session owns its
+exact token. Inspect the failed run before clearing a guard on a stopped
+virtual card; the menu does not discard it.
 
 USB/IP status/echo/identity, the RTOS monitor, native calls/printf, synchronization,
 IRQ queries, original Linux shell IPC and the Linux RAM agent pass with a
@@ -51,7 +80,8 @@ reacquires a foreground target masked by a native transition. Both error text
 and CPU diagnostics are checked separately from the recorded renderer frames.
 Live titles and measured label/value fitting have separate visual acceptance.
 All candidates remain **emulator-only; DO_NOT_FLASH**. No physical camera or
-updater was tested.
+firmware programming is qualified. Original updater-menu status mapping and
+the new admission guards have separate isolated instruction controls.
 
 ## Native resident modules
 
@@ -68,9 +98,11 @@ Code and state remain resident until reboot, including failed initialization.
 Shutdown and Panic notify residents and wait for resource retirement. A stop
 acknowledgement does not unload native code.
 
-The [ProRes module pair](../modules/prores/README.md) tests a managed UI client
-with a native provider. The optional core video backend still owns the pinned
-ROM hooks and early admission fence. Generic native limits allow a 32 MiB
+Earlier [ProRes pair controls](../modules/prores/README.md) tested a managed UI
+client with a native provider. The initial current module set uses WLM v4
+frontends over core-owned target services; a generic native composer is not
+required. The optional core video backend owns the guarded RAM hooks and
+native admission fence. Generic native limits allow a 32 MiB
 package and 64 MiB image. These limits reserve no memory and do not qualify
 such sizes on physical C2.01 hardware.
 
@@ -162,7 +194,9 @@ python -B fenestra.py build --target z63-c201 \
   --output build/z63-runtime
 ```
 
-Run the native Fenestra action to discover packages in `FENESTRA/`, then open
+Copy that output directory's `FX63ARM.BIN` to `FENESTRA/FX63ARM.BIN` on the
+disposable virtual card alongside the modules. It must match this exact build.
+Run **Activate Fenestra** to discover packages in `FENESTRA/`, then open
 Applications for modules with visible controls. This path does not pin a test
 package's filename, size or digest at compile time. The earlier headless sample
 has no SDK capabilities; examples `sdk.c`, `services.c`, `tasks.c`, `image.c`,
@@ -182,13 +216,15 @@ C2.01 camera agrees with the static trace. The build decodes the window bounds
 from the original copy routine and rejects a code region that overlaps one
 (`host/z63_placement.py`, [porting guide](porting.md)).
 
-No hook branches straight into the core. Each of the 14 hooks (18 with
-`--experimental-ptp`) goes through a guard in the padding at `0x40194180`,
-inside the copied content of the lowest window. The guard enters the core only
-when the marker at the end of the code region is present; otherwise the hooked
-site behaves as original. `host/z63_core_absent_smoke.py` boots a candidate
-with the code region cleared and requires an original-matching scanout with no
-entry into the region.
+Declared firmware hook sites go through guards in copied padding at
+`0x40194180`. The normal runtime keeps four shell sites and two independent
+updater-admission sites permanent. Its remaining 10 base or 29 video sites
+are installed only in RAM after admission; optional debugging adds four RAM
+sites. The external validator checks the marker and CRC32 of the complete
+384 KiB immutable core reservation before entry. The linker refuses writable
+static core data. CRC32 detects accidental corruption, not authenticity.
+`host/check_z63_boot_order.py` checks original loading, absent/corrupt core,
+refused initialization and verified stale startup state against stock controls.
 
 The builder checks the complete original image, native binding fingerprints,
 hook spans, placement and the empty code and guard regions before compiling. `verified.json` is an
@@ -230,11 +266,13 @@ Its run records `FX_INTEGRITY`, one fault and zero context-restoration errors;
 the guest continues. This is bounded fault evidence, not arbitrary-code or
 hardware fault containment.
 
-The current owner retains session/task state until reboot and permits one
-activation attempt per boot. There is no unload/retry contract. The native menu test covers activation, Back to Setup and return to live view
-using MCU buttons. With `--repeat-activation`, pressing Start twice produces one
-worker and one INIT/TICK/STOP sequence. Media loss during IO and shutdown under
-load need separate acceptance before broader runtime claims.
+The current owner retains session/task state until reboot. Duplicate Activate
+presses start one controller. Deactivation and card removal close that
+initialization; verified standby restoration has its separate admission path.
+The native menu tests cover activation, deactivation, Back, live view and
+shutdown. Card-detect fixtures retain their NVMe backing, so they do not prove
+physical media-loss behavior. Recording lifetimes and hardware timing retain
+their separate acceptance requirements.
 
 The current host suite runs 82 tests with three platform skips. Earlier
 bring-up checks covered 43 original

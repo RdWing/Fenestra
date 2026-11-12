@@ -1,6 +1,7 @@
 /* One native task serializes card journal/config IO. No GUI callback performs
  * filesystem work. An uncertain or unfinished stop retains the boot guard. */
 #include "startup.h"
+#include "activation.h"
 #include "fenestra_memory.h"
 #include "z63_startup_bindings.h"
 #define FN(a,t) ((t)(uintptr_t)(a))
@@ -20,24 +21,31 @@ static void publish(FxZ63Startup *s) {
 }
 static void activate(FxZ63Startup *s) {
     if(s->journal.phase!=FX_STARTUP_READY || atomic_load(&s->shutdown))return;
+    FxResult r=s->validate?s->validate(s->context):FX_STATE;
+    if(r!=FX_OK){s->journal.error=r;return;}
     uint64_t counter;__asm__ volatile("mrs %0,cntpct_el0":"=r"(counter));
-    FxResult r=fx_startup_arm(&s->journal,&s->io,counter?counter:1u);
+    r=fx_startup_arm(&s->journal,&s->io,counter?counter:1u);
     if(r==FX_OK && !atomic_load(&s->shutdown))r=s->activate(s->context);
     else if(r==FX_OK)r=FX_STATE;
     if(r!=FX_OK)fx_startup_fault(&s->journal,r);
 }
 static void worker(void *context) {
     FxZ63Startup *s=context;
+    if(fx_z63_activation_updating())goto updating;
     if(!atomic_load_explicit(&s->shutdown,memory_order_acquire))
         (void)fx_startup_inspect(&s->journal,&s->io);
     publish(s);
     for(;;) {
+        if(fx_z63_activation_updating())goto updating;
         if(atomic_load_explicit(&s->shutdown,memory_order_acquire)) {
             /* The SYSCTL owner limits this window. Do not remove a guard
              * merely because FINISH returned or the controller stopped. */
             if(!atomic_load(&s->shutdown_done) && atomic_load(&s->cleanup_window)) {
-                if(s->runtime_state(s->context)==3u && s->journal.phase==FX_STARTUP_RUNNING) {
-                    (void)fx_startup_clean_shutdown(&s->journal,&s->io,1);publish(s);
+                if(s->runtime_state(s->context)==3u && s->journal.phase==FX_STARTUP_RUNNING &&
+                   s->quiesced && s->quiesced(s->context)==FX_OK) {
+                    FxResult result=fx_startup_clean_shutdown(&s->journal,&s->io,1);
+                    if(s->cleaned)s->cleaned(s->context,result);
+                    publish(s);
                     atomic_store_explicit(&s->shutdown_done,1u,memory_order_release);
                 } else if(s->journal.phase!=FX_STARTUP_RUNNING && s->journal.phase!=FX_STARTUP_ARMED)
                     atomic_store_explicit(&s->shutdown_done,1u,memory_order_release);
@@ -48,20 +56,37 @@ static void worker(void *context) {
                 (void)fx_startup_inspect(&s->journal,&s->io);
             if(s->journal.phase==FX_STARTUP_READY && !s->automatic_attempted) {
                 s->automatic_attempted=1u;
-                if(s->journal.desired&FX_STARTUP_AUTO)activate(s);
+                if(s->resume)activate(s);
+            }
+            /* A verified retained session may own the exact outstanding
+             * journal token. A foreign/uncertain flag is never removed. */
+            if(!s->automatic_attempted && s->resume && s->journal.phase==FX_STARTUP_ABNORMAL &&
+               s->journal.flag_known && s->resume_token &&
+               !memcmp(s->journal.owned_record+24,&s->resume_token,8u)) {
+                s->automatic_attempted=1u;
+                FxResult r=s->validate?s->validate(s->context):FX_STATE;
+                if(r==FX_OK)r=fx_startup_clear_abnormal(&s->journal,&s->io);
+                if(r==FX_OK)activate(s);else s->journal.error=r;
             }
             if(command==FX_Z63_BOOT_ACTIVATE)activate(s);
-            else if(command==FX_Z63_BOOT_CLEAR)(void)fx_startup_clear_abnormal(&s->journal,&s->io);
-            else if(command==FX_Z63_BOOT_AUTO)
-                (void)fx_startup_configure(&s->journal,&s->io,s->journal.desired^FX_STARTUP_AUTO);
-            if(s->journal.phase==FX_STARTUP_ARMED && s->runtime_state(s->context)==1u)
+            else if(command==FX_Z63_BOOT_DEACTIVATE && s->stop)s->stop(s->context);
+            if(s->journal.phase==FX_STARTUP_ARMED && s->runtime_state(s->context)==1u) {
                 fx_startup_running(&s->journal);
+                if(s->committed)s->committed(s->context,s->journal.token);
+            }
             if((s->journal.phase==FX_STARTUP_ARMED || s->journal.phase==FX_STARTUP_RUNNING) &&
                s->runtime_state(s->context)==2u)fx_startup_fault(&s->journal,FX_INTEGRITY);
             publish(s);
         }
         if(fx_z63_task_delay_ticks(10u)!=FX_OK)return;
     }
+updating:
+    /* Update admission can win only before this session activates. Keep the
+     * published shell valid, close command admission and retire this worker
+     * without changing card files or making shutdown wait for a dead task. */
+    s->journal.phase=FX_STARTUP_STOPPED;s->journal.error=FX_STATE;publish(s);
+    atomic_store(&s->cleanup_window,0u);atomic_store(&s->shutdown,1u);
+    atomic_store_explicit(&s->shutdown_done,1u,memory_order_release);
 }
 void fx_z63_startup_init(FxZ63Startup *s) {
     memset(s,0,sizeof(*s));fx_startup_init_profile(&s->journal,0,630201u);
@@ -81,7 +106,8 @@ FxResult fx_z63_startup_start(FxZ63Startup *s) {
     return r;
 }
 FxResult fx_z63_startup_request(FxZ63Startup *s,uint32_t command) {
-    if(!s || command<1u || command>3u || atomic_load(&s->shutdown))return FX_ARGUMENT;
+    if(!s || command<1u || command>3u)return FX_ARGUMENT;
+    if(atomic_load(&s->shutdown) || fx_z63_activation_updating())return FX_STATE;
     FxResult r=fx_z63_startup_start(s);if(r!=FX_OK)return r;
     uint32_t zero=0u;
     return atomic_compare_exchange_strong_explicit(&s->command,&zero,command,memory_order_release,memory_order_relaxed)?FX_OK:FX_BUSY;

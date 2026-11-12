@@ -129,12 +129,18 @@ def main():
     parser.add_argument('--mode-dial',choices=('P','S','A','M','AUTO','U1','U2','U3'),help='explicit emulator mode-dial fixture')
     parser.add_argument('--seconds', type=float, default=35)
     parser.add_argument('--no-image-preload',action='store_true',help='let original MAIN copy its DRAM code windows')
+    parser.add_argument('--nor-audit-plugin',type=Path,help='observe every CPU NOR transaction with the local read-only audit plugin')
+    parser.add_argument('--activation-refusal',choices=('missing','invalid','updating'),help='test missing/invalid enable input or a supplied updater-session refusal')
+    parser.add_argument('--card-reinsert-test',action='store_true',help='after refusal, remove/reinsert the modeled card and verify that no feature activates')
+    parser.add_argument('--initial-card-absent',action='store_true',help='boot with card detection off, then insert the supplied virtual card before manual activation')
+    parser.add_argument('--card-loss-test',action='store_true',help='remove/reinsert card detection after activation and require closed admission with retained update exclusion')
     parser.add_argument('--module-count',type=int,default=1,help='expected inventory size for the runtime control')
     parser.add_argument('--keys', default='', help='comma-separated native MCU key presses after boot')
     parser.add_argument('--native-menu-test', action='store_true', help='navigate Setup/Fenestra, activate, Back and return to live view using MCU keys')
     parser.add_argument('--repeat-activation', action='store_true', help='press Run twice in the native menu and require a single worker attempt')
     parser.add_argument('--startup-test',choices=('manual','guard','autoload','config'),help='check native card startup policy and optional recovery/configuration actions')
     parser.add_argument('--shutdown-test',action='store_true',help='after startup acceptance, use the model power switch and require clean journal retirement')
+    parser.add_argument('--deactivate-test',action='store_true',help='select Deactivate Fenestra through the native menu and require complete owned-hook retirement')
     parser.add_argument('--panic-test',action='store_true',help='require the retained native panic screen after a deliberate module CPU fault')
     parser.add_argument('--resident-fault-test',action='store_true',help='check a reported native init failure and managed-peer retirement, without a CPU exception')
     parser.add_argument('--panic-peer-test',action='store_true',help='also require the other module owner to acknowledge native stop')
@@ -166,8 +172,15 @@ def main():
     parser.add_argument('--h265-test',action='store_true',help='use the H.265 app and bitrate policy for the video selection control')
     parser.add_argument('--video-prepare',choices=('direct','legacy-half'),default='direct',help='recording control: switch directly to Movie, or reproduce the earlier still-half-press sequence')
     parser.add_argument('--video-record-choice',type=int,choices=range(5),help='video test: select one quality and observe native recording admission up to the expected strict codec-model stop')
-    parser.add_argument('--expect', choices=('success', 'fault', 'rejected', 'sdk', 'services', 'runtime', 'ui', 'timeout', 'files', 'mapping', 'global'), default='success')
+    parser.add_argument('--expect', choices=('success', 'fault', 'rejected', 'sdk', 'services', 'runtime', 'lifecycle', 'ui', 'timeout', 'files', 'mapping', 'global'), default='success')
     args = parser.parse_args()
+    if args.activation_refusal and (not args.native_menu_test or args.startup_test!='manual' or args.nor_audit_plugin):
+        parser.error('--activation-refusal requires native-menu/manual-startup and a separate NOR-audit run')
+    if args.card_reinsert_test and not args.activation_refusal:parser.error('--card-reinsert-test requires an activation refusal control')
+    if args.deactivate_test and (not args.native_menu_test or args.startup_test!='manual'):
+        parser.error('--deactivate-test requires native-menu/manual-startup controls')
+    if args.card_loss_test and (args.startup_test!='manual' or not args.native_menu_test or args.shutdown_test or args.deactivate_test):
+        parser.error('--card-loss-test requires its separate native-menu/manual-startup control')
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,20}",args.nvme_serial):parser.error("invalid virtual NVMe serial")
     if args.raw_record_choice is not None and not args.raw_test:parser.error('--raw-record-choice requires --raw-test')
     if args.raw_test and (not args.video_test or args.h265_test or args.video_menu_test or args.module_count!=1 or args.video_record_choice is not None):parser.error('--raw-test requires one raw app and excludes other video controls')
@@ -207,6 +220,8 @@ def main():
     if (args.manager_test or args.ui_test or args.tasks_test) and not args.native_menu_test:
         parser.error('native UI tests require --native-menu-test')
     receipt = json.loads(args.receipt.read_text())
+    if receipt.get('activation') and args.startup_test not in (None,'manual'):
+        parser.error('build-bound activation uses manual cold start; legacy autostart/config/clear controls do not apply')
     application = args.application.resolve(strict=True)
     if args.video_menu_test and not args.video_test:parser.error('--video-menu-test requires --video-test')
     if args.video_test and (not args.ui_test or not args.native_menu_test or not receipt.get('video')):
@@ -222,7 +237,17 @@ def main():
     (out/'test-harness.py').write_bytes(harness_source)
     clone(args.nand.resolve(strict=True), out / 'nand.img')
     clone(args.card.resolve(strict=True), out / 'card.img')
-    symbols = receipt['symbols']
+    symbols = dict(receipt['symbols'])
+    observation_bindings={}
+    if receipt.get('menu'):
+        from elf_symbols import local_function
+        address,body=local_function(args.receipt.parent/'probe.elf','menu.c','activate')
+        if application.read_bytes()[address-0x40160000:address-0x40160000+len(body)]!=body:
+            raise ValueError('menu observation function differs from the candidate')
+        symbols['activate']=address
+        observation_bindings['activate']=dict(unit='menu.c',address=hex(address),bytes=len(body),
+            sha256=hashlib.sha256(body).hexdigest())
+        (out/'elf_symbols.py').write_bytes((Path(__file__).parent/'elf_symbols.py').read_bytes())
     observed = ['fx_z63_sysctl_before', 'fx_z63_sysctl_after', 'fx_z63_probe_module_result']
     if args.video_test:observed+=['fx_z63_video_movie','fx_z63_video_capture','fx_z63_video_code']
     if args.ptp_client:
@@ -246,6 +271,7 @@ def main():
             'imu-mg=1000:0:0', 'scanout-dump=' + str(out / 'frame.ppm')])
         if args.mode_dial:machine+=',mode-dial='+args.mode_dial
         if args.no_image_preload:machine+=',image-in-dram=off'
+        if args.initial_card_absent:machine+=',cfexpress-card=off'
         if args.dma_copy_zero_model:machine+=',dma-copy-zero-model=on'
         if args.video_properties:
             properties=args.video_properties.read_text().strip().split(';')
@@ -272,6 +298,10 @@ def main():
                 *(['0x407ebf20'] if args.h265_record_tier is not None else []),
                 *(['0x40250af8','0x402514e8','0x4032a2dc','0x4032a2e0'] if args.reader_test else []),
                 *(['0x403204d0','0x40c15bfc','0x403222e0','0x40322308','0x40321d7c','0x40323028','0x40322498','0x40322900','0x40320724','0x40320820'] if args.ptp_client else [])])]
+        if args.nor_audit_plugin:
+            command+=['-plugin',str(args.nor_audit_plugin.resolve(strict=True))+',out='+str(out/'nor-events.txt')]
+        if args.activation_refusal=='updating':
+            command+=['-gdb','unix:'+str(Path(temp)/'gdb')+',server=on,wait=off']
         (out/'command.json').write_text(json.dumps(command,indent=2)+'\n')
         start = time.monotonic()
         with (out / 'qemu.log').open('wb') as log:
@@ -304,6 +334,20 @@ def main():
                             raise RuntimeError(response['error'])
 
                 qmp('qmp_capabilities')
+                def immutable_snapshot(label):
+                    checks=[]
+                    for name,address,expected_bytes in (
+                        ('loader',0x40000000,args.loader.read_bytes()),
+                        ('main',0x40160000,application.read_bytes()[:-2])):
+                        path=out/(name+'-'+label+'.bin')
+                        qmp('pmemsave',{'val':address,'size':len(expected_bytes),'filename':str(path)})
+                        actual=path.read_bytes()
+                        if actual!=expected_bytes:raise RuntimeError(name+' immutable physical model bytes changed')
+                        checks.append(dict(region=name,address=hex(address),bytes=len(actual),
+                            sha256=hashlib.sha256(actual).hexdigest(),matches_supplied_image=True))
+                    (out/('immutable-'+label+'.json')).write_text(json.dumps(checks,indent=2)+'\n')
+                if args.nor_audit_plugin:
+                    qmp('stop');immutable_snapshot('before');qmp('cont')
                 time.sleep(args.seconds)
                 qmp('screendump', {'filename': str(out / 'before-menu.ppm')})
                 views = []
@@ -314,6 +358,32 @@ def main():
                     if not words:
                         raise RuntimeError('native view read failed')
                     return int(words[0], 16)
+
+                def activation_snapshot(label,expected=None):
+                    if not receipt.get('activation'):return
+                    from z63_activation import CONTROL_RAM,alias
+                    data=application.read_bytes();base=0x40160000
+                    count=struct.unpack_from('<I',data,symbols['fx_z63_activation_count']-base)[0]
+                    rows=[struct.unpack_from('<III',data,symbols['fx_z63_activation_words']-base+i*12) for i in range(count)]
+                    actual=[read64(alias(site))&0xffffffff for site,old,new in rows]
+                    state=dict(label=label,latch=read64(CONTROL_RAM)&0xffffffff,
+                        wake=(read64(CONTROL_RAM)>>32)&0xffffffff,
+                        original_words=sum(word==row[1] for word,row in zip(actual,rows)),
+                        installed_words=sum(word==row[2] for word,row in zip(actual,rows)),
+                        total=count,words=[hex(word) for word in actual])
+                    with (out/'activation-states.jsonl').open('a') as stream:stream.write(json.dumps(state)+'\n')
+                    if expected=='stock' and (state['latch'] or state['original_words']!=count):raise RuntimeError('feature state changed before manual activation')
+                    if expected=='active' and (state['latch']!=1 or state['installed_words']!=count):raise RuntimeError('activation did not install the complete RAM set')
+                    if expected=='retired' and (state['latch']!=1 or state['original_words']!=count):raise RuntimeError('retirement did not restore owned RAM words or lost the update interlock')
+                    if expected=='updating' and (state['latch']!=2 or state['original_words']!=count):raise RuntimeError('updater session admitted feature changes')
+
+                activation_snapshot('before-menu','stock')
+                if args.initial_card_absent:
+                    if qmp('qom-get',{'path':'/machine','property':'cfexpress-card'}):raise RuntimeError('initial no-card fixture failed')
+                    (out/'before-card.ppm').write_bytes((out/'before-menu.ppm').read_bytes())
+                    qmp('qom-set',{'path':'/machine','property':'cfexpress-card','value':True})
+                    time.sleep(5);activation_snapshot('inserted-before-activation','stock')
+                    qmp('screendump',{'filename':str(out/'before-menu.ppm')})
 
                 def view():
                     vector = read64(0xa03420de8)
@@ -401,6 +471,19 @@ def main():
                     time.sleep(.35)
                     qmp('qom-set', {'path': '/machine', 'property': 'mcu-keys', 'value': ''})
                     time.sleep(1.5)
+
+                def focus_fenestra_action(identifier):
+                    for _ in range(18):
+                        if view()>>16!=0x7000:raise RuntimeError('Fenestra action page is not open')
+                        leaf=int(json.loads((out/'native-views.jsonl').read_text().splitlines()[-1])['chain'][-1],16)
+                        descriptor=read64(leaf+80);rows=read64(descriptor+16);count=read64(descriptor+32)&65535
+                        index=((read64(leaf+48)>>16)&65535)+(read64(leaf+88)&65535)
+                        if not 1<=count<=18 or index>=count:raise RuntimeError('Fenestra action row bounds')
+                        ids=[read64(rows+i*44+24)&0xffffffff for i in range(count)]
+                        if ids.count(identifier)!=1:raise RuntimeError('Fenestra action absent')
+                        if ids[index]==identifier:return
+                        keypress('down' if ids.index(identifier)>index else 'up')
+                    raise RuntimeError('Fenestra action unreachable')
 
                 def touch(point):
                     qmp('qom-set',{'path':'/machine','property':'touch','value':point})
@@ -537,7 +620,7 @@ def main():
                         raise RuntimeError('native Fenestra page not reached')
                     qmp('screendump', {'filename': str(out / 'fenestra.ppm')})
                     if args.startup_test:
-                        if not receipt.get('runtime') or args.ptp_client or not args.native_menu_test or (args.expect!='runtime' and not args.demo_test and not args.video_test):
+                        if not receipt.get('runtime') or args.ptp_client or not args.native_menu_test or (args.expect not in ('runtime','lifecycle') and not args.demo_test and not args.video_test):
                             raise ValueError('startup control requires the normal discovered runtime test')
                         image=application.read_bytes();base=0x40160000
                         boot_layout=struct.unpack_from('<7I',image,symbols['fx_z63_startup_layout']-base)
@@ -556,6 +639,50 @@ def main():
                         expected_phase=2 if args.startup_test=='guard' else 5 if args.startup_test=='autoload' else 1
                         initial=boot_wait(lambda s:s['phase']==expected_phase)
                         startup_result=dict(mode=args.startup_test,initial=initial)
+                        if args.activation_refusal:
+                            update_fixture=None
+                            if args.activation_refusal=='updating':
+                                from z63_update_fixture import claim_update
+                                qmp('stop')
+                                if qmp('query-status').get('running'):raise RuntimeError('update fixture was not paused')
+                                update_fixture=claim_update(Path(temp)/'gdb')
+                                qmp('cont');time.sleep(1)
+                                # Exit the published shell and re-enter it after
+                                # the updater owns the session. This catches an
+                                # invalid original-page fallback, not just text.
+                                keypress('down');keypress('ok')
+                                if view()>>16!=690:raise RuntimeError('update-session shell Back failed')
+                                keypress('right')
+                                if view()>>16!=0x7000:raise RuntimeError('update-session shell reopen failed')
+                            focus_fenestra_action(0x7ff1)
+                            keypress('ok')
+                            expected_error={'missing':12,'invalid':10,'updating':2}[args.activation_refusal]
+                            expected_phase=7 if update_fixture else 1
+                            refused=boot_wait(lambda s:s['phase']==expected_phase and s['error']==expected_error)
+                            activation_snapshot('refused','updating' if update_fixture else 'stock')
+                            if args.card_reinsert_test:
+                                qmp('qom-set',{'path':'/machine','property':'cfexpress-card','value':False})
+                                time.sleep(3)
+                                if qmp('qom-get',{'path':'/machine','property':'cfexpress-card'}):raise RuntimeError('card removal fixture failed')
+                                qmp('qom-set',{'path':'/machine','property':'cfexpress-card','value':True})
+                                time.sleep(5);keypress('ok');activation_snapshot('reinserted','stock')
+                            trace=(out/'calls.log').read_text()
+                            if not re.search(r'call pc='+hex(symbols['activate'])+r'\b',trace):raise RuntimeError('activation callback was not reached')
+                            if re.search(r'call pc='+hex(symbols['fx_z63_probe_module_result'])+r' x0=0x4\b',trace):
+                                raise RuntimeError('refused activation started a module controller')
+                            qmp('screendump',{'filename':str(out/'refused.ppm')})
+                            status=qmp('query-status')
+                            if not status.get('running'):raise RuntimeError('model stopped after refusal')
+                            qmp('quit');process.wait(timeout=10)
+                            result=dict(passed=True,candidate_sha256=receipt['candidate_sha256'],
+                                test_harness_sha256=hashlib.sha256(harness_source).hexdigest(),observation_bindings=observation_bindings,
+                                activation_refusal=args.activation_refusal,initial=initial,refused=refused,
+                                updater_session_fixture=update_fixture,
+                                card_removal_reinsertion=args.card_reinsert_test,feature_words_remained_stock=True,
+                                controller_never_started=True,status=status,command=command,
+                                physical_camera_tested=False,scope='Native menu refusal and modeled card detection; no module or firmware update starts.')
+                            (out/'result.json').write_text(json.dumps(result,indent=2)+'\n')
+                            print(json.dumps(result,indent=2));return
                         if args.startup_test=='guard':
                             keypress('ok')
                             if boot_state()['phase']!=2:raise RuntimeError('Guard failed to block activation')
@@ -1411,9 +1538,44 @@ def main():
                         panic_result['peer_quiesced']=True
                 if args.startup_test:
                     startup_result['running']=boot_wait(lambda s:s['phase']==5 and not s['error'])
+                    activation_snapshot('running','active')
+                    if args.card_loss_test:
+                        qmp('qom-set',{'path':'/machine','property':'cfexpress-card','value':False})
+                        time.sleep(8)
+                        removed=boot_state();activation_snapshot('card-removed')
+                        from z63_activation import CONTROL_RAM
+                        if read64(CONTROL_RAM)&0xffffffff!=1:raise RuntimeError('card loss cleared the update interlock')
+                        image=application.read_bytes();meta=struct.unpack_from('<7I',image,symbols['fx_z63_activation_layout']-0x40160000)
+                        root=read64(0xa02912e60)
+                        if read64(root+meta[3])&0xffffffff not in (0,2,3):raise RuntimeError('card loss left new work admitted')
+                        qmp('qom-set',{'path':'/machine','property':'cfexpress-card','value':True})
+                        time.sleep(5);activation_snapshot('card-reinserted')
+                        if read64(CONTROL_RAM)&0xffffffff!=1:raise RuntimeError('reinsertion cleared the update interlock')
+                        startup_result['card_loss']=dict(removed=removed,reinserted=boot_state(),
+                            card_detection_only=True,nvme_backing_remains_present=True,
+                            cleanup_confirmed=removed['phase']==7 and removed['shutdown_done']==1 and not removed['error'])
+                    if args.deactivate_test:
+                        keypress('menu')
+                        if view()&65535!=2:keypress('menu')
+                        keypress('left');keypress('left')
+                        for _ in range(8):
+                            if view()>>16==690:break
+                            keypress('up')
+                        if view()>>16!=690:raise RuntimeError('deactivation Setup route failed')
+                        keypress('right');keypress('right')
+                        if view()>>16!=0x7000:raise RuntimeError('deactivation Fenestra route failed')
+                        focus_fenestra_action(0x7ff6)
+                        keypress('ok')
+                        startup_result['deactivated']=boot_wait(lambda s:s['phase']==7 and s['shutdown_done']==1 and not s['error'])
+                        activation_snapshot('deactivated','retired')
+                        from z63_activation import CONTROL_RAM
+                        if read64(CONTROL_RAM)>>32!=2:raise RuntimeError('manual deactivation retained automatic wake eligibility')
+                        startup_result['manual_deactivation_tested']=True
+                        qmp('screendump',{'filename':str(out/'deactivated.ppm')})
                     if args.shutdown_test:
                         qmp('qom-set',{'path':'/machine','property':'mcu-keys','value':'power=off'})
                         startup_result['stopped']=boot_wait(lambda s:s['phase']==7 and s['shutdown_done']==1 and not s['error'])
+                        activation_snapshot('stopped','retired')
                         startup_result['power_switch_tested']=True
                         if args.video_test:
                             retired=video_state();video_result['shutdown_state']=retired
@@ -1428,6 +1590,10 @@ def main():
                     qmp('pmemsave',{'val':0x45980000,'size':0x2680000,'filename':str(out/'snor-after.bin')})
                     exported=(out/'snor-after.bin').read_bytes()
                     startup_result['exported_snor']=dict(bytes=len(exported),sha256=hashlib.sha256(exported).hexdigest())
+                if args.nor_audit_plugin:
+                    # Physical reads bypass the remapped executable aliases.
+                    qmp('stop')
+                    immutable_snapshot('after')
                 qmp('screendump', {'filename': str(out / 'final.ppm')})
                 qmp('quit')
                 process.wait(timeout=10)
@@ -1442,6 +1608,14 @@ def main():
                 if process.poll() is None:
                     process.terminate()
                     process.wait(timeout=10)
+    if args.nor_audit_plugin:
+        from check_z63_nor_audit import audit
+        nor=audit(out/'nor-events.txt')
+        if args.video_menu_test and args.shutdown_test and not nor['programs']:
+            raise RuntimeError('NOR observer saw no programming in the settings-save control')
+        nor['loader_and_main_byte_identical']=True
+        nor['plugin_sha256']=hashlib.sha256(args.nor_audit_plugin.read_bytes()).hexdigest()
+        (out/'nor-audit.json').write_text(json.dumps(nor,indent=2)+'\n')
     records = []
     for line in (out / 'calls.log').read_text().splitlines():
         match = re.search(r'call pc=(0x[0-9a-f]+) x0=(0x[0-9a-f]+) x1=(0x[0-9a-f]+) x2=(0x[0-9a-f]+)', line)
@@ -1493,6 +1667,11 @@ def main():
         passed=((60,0,1) in stages and (61,0,0) in stages and (63,0,1) in stages and
                 requests==[(0,24)]+[(0,22)]*4+[(0,24)] and
                 not any(stage in (40,52) for stage,_,_ in stages))
+    elif args.expect == 'lifecycle':
+        passed=((60,0,args.module_count) in stages and
+            sorted(detail for stage,result,detail in stages if stage==61 and result==0)==list(range(args.module_count)) and
+            startup_result is not None and startup_result.get('passed') and
+            not any(stage in (40,52) for stage,_,_ in stages))
     elif args.expect == 'runtime':
         requests = [(result, detail) for stage, result, detail in stages if stage == 51]
         count=args.module_count
@@ -1542,7 +1721,8 @@ def main():
         scanout_channel_tolerance=args.scanout_channel_tolerance,
         live_view_exact_fraction=scanout_fraction(out/'before-menu.ppm',out/'returned.ppm') if (out/'returned.ppm').exists() else None,
         visual_review_required=True, physical_camera_tested=False, native_menu_completed=menu_completed,
-        repeat_activation_tested=args.repeat_activation,ptp=ptp_result,
+        repeat_activation_tested=args.repeat_activation,ptp=ptp_result,observation_bindings=observation_bindings,
+        initial_card_detection_absent=args.initial_card_absent,
         native_view_identities=views, live_view_match_fraction=scanout_matches,
         menu_match_fraction=menu_matches, menu_exit_presses=menu_exit_presses, command=command)
     (out / 'result.json').write_text(json.dumps(result, indent=2) + '\n')

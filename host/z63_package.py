@@ -102,20 +102,47 @@ def verify_application(original, candidate, receipt, profile):
         hooks[address] = (target, address in calls)
     # Rebuild every guard independently from the original image and the
     # receipt; the candidate must contain exactly those bytes and no others.
-    guard_profile = profile if receipt.get('menu') else {k:v for k,v in profile.items() if k!='late_initialization'}
-    guard_code, guard_table = build_guards(guard_profile, original, hooks, candidate[begin:end], receipt['symbols'].get('fx_z63_system_after_start') if receipt.get('menu') else None)
+    from z63_activation import profile_for, SHELL
+    from z63_placement import updater_entries, _branch
+    active=bool(receipt.get('runtime'))
+    guard_profile = profile_for(profile,active) if receipt.get('menu') else {k:v for k,v in profile.items() if k!='late_initialization'}
+    guard_code, guard_table = build_guards(guard_profile, original, hooks, candidate[begin:end], receipt['symbols'].get('fx_z63_system_after_start') if receipt.get('menu') else None, bytes.fromhex(receipt['build_identity']) if 'build_identity' in receipt else bytes(32))
     g0, g1 = (profile['guard_region'][name] - base for name in ('begin', 'end'))
     if candidate[g0:g0 + len(guard_code)] != guard_code or any(candidate[g0 + len(guard_code):g1]):
         raise ValueError('boot hook guards differ')
     restored[g0:g1] = original[g0:g1]
     for address, (target, call) in hooks.items():
         word = struct.unpack_from('<I', candidate, address - base)[0]
+        if active and address not in SHELL:
+            if candidate[address-base:address-base+4]!=original[address-base:address-base+4]:
+                raise ValueError('RAM-only feature hook is present in flash')
+            continue
         delta = word & 0x3ffffff
         if delta & (1 << 25):
             delta -= 1 << 26
         if word >> 26 != (0x25 if call else 0x5) or address + delta * 4 != guard_table[address]:
             raise ValueError('hook does not branch to its guard')
         restored[address - base:address - base + 4] = original[address - base:address - base + 4]
+    if active:
+        updates=updater_entries(guard_profile,hooks)
+        expected=dict(format=2,permanent_hooks=[hex(a) for a in hooks if a in SHELL]+[hex(a) for a in updates],
+            ram_hooks=[hex(a) for a in hooks if a not in SHELL],
+            updater_guards={hex(a):hex(g) for a,g in updates.items()},manual_cold_start=True,verified_wake_restore=True)
+        actual=receipt.get('activation')
+        # Order is presentation only; the complete sets and every field matter.
+        if not actual or {**actual,'permanent_hooks':sorted(actual['permanent_hooks'])} != {**expected,'permanent_hooks':sorted(expected['permanent_hooks'])}:
+            raise ValueError('activation receipt differs')
+        for address,entry in updates.items():
+            if struct.unpack_from('<I',candidate,address-base)[0]!=_branch(address,entry):
+                raise ValueError('updater admission guard differs')
+            restored[address-base:address-base+4]=original[address-base:address-base+4]
+        from z63_activation import ram_words
+        rows=ram_words(profile,original,hooks,calls)
+        count_at=receipt['symbols']['fx_z63_activation_count']-base
+        if struct.unpack_from('<I',candidate,count_at)[0]!=len(rows):raise ValueError('activation record count differs')
+        at=receipt['symbols']['fx_z63_activation_words']-base
+        actual=candidate[at:at+len(rows)*12]
+        if actual!=b''.join(struct.pack('<III',*row) for row in rows):raise ValueError('immutable activation records differ')
     if restored != original:
         raise ValueError('undeclared application change outside code/hooks')
 

@@ -17,6 +17,7 @@ typedef struct {
 
 } FxZ63VideoQuality;
 void fx_z63_video_init(FxZ63VideoQuality *);
+int fx_z63_video_quiescent(FxZ63VideoQuality *);
 FxZ63VideoQuality *fx_z63_menu_video(void);
 FxResult fx_z63_video_resource(void *,uint32_t,const FxNamedBinding *,FxPlatformOwner *,uint64_t,
     uint64_t *,const FxServiceRequest *,FxServiceReply *);

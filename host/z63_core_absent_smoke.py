@@ -47,7 +47,9 @@ def boot(args, image, out, watch, snapshots=()):
             # Original startup must replace the initialized-data root before
             # it can admit optional code. This is not a physical warm resume.
             command += ['-S','-device','loader,addr=0xa02912e60,data=0xa10000000,data-len=8',
-                        '-device','loader,addr=0xa10000040,data=0x1465a634d,data-len=8']
+                        '-device','loader,addr=0xa10000040,data=0x1465a634d,data-len=8',
+                        '-device','loader,addr=0xa1000004c,data=1,data-len=4',
+                        '-device','loader,addr=0xa1722cfe0,data=0x100000001,data-len=8']
         with (out / 'qemu.log').open('wb') as log:
             process = subprocess.Popen(command, stdout=log, stderr=log)
             try:
@@ -75,9 +77,11 @@ def boot(args, image, out, watch, snapshots=()):
 
                 qmp('qmp_capabilities')
                 if getattr(args,'stale_state',False):
-                    for name,address,value in (('stale-before-root.bin',0xa02912e60,0xa10000000),
-                                               ('stale-before-identity.bin',0xa10000040,0x1465a634d)):
-                        qmp('pmemsave',{'val':address,'size':8,'filename':str(out/name)})
+                    for name,address,value,size in (('stale-before-root.bin',0xa02912e60,0xa10000000,8),
+                                               ('stale-before-identity.bin',0xa10000040,0x1465a634d,8),
+                                               ('stale-before-active.bin',0xa1000004c,1,4),
+                                               ('stale-before-session.bin',0xa1722cfe0,0x100000001,8)):
+                        qmp('pmemsave',{'val':address,'size':size,'filename':str(out/name)})
                         if int.from_bytes((out/name).read_bytes(),'little')!=value:
                             raise RuntimeError('Stale startup fixture was not present before MAIN')
                     qmp('cont')

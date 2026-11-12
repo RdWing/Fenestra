@@ -65,6 +65,16 @@ static int lock(FxZ63VideoQuality *s) {
     return 0;
 }
 static void unlock(FxZ63VideoQuality *s){FN(0x40d32f60,void (*)(void *))(s->mutex);}
+int fx_z63_video_quiescent(FxZ63VideoQuality *s) {
+    if(!lock(s))return 0;
+    FxVideoQualityPolicy *policies[]={&s->policy,&s->raw,&s->h265};
+    int ready=!atomic_load(&s->settings_busy);
+    for(uint32_t i=0;i<3u;++i) {
+        FxVideoQualityPolicy *p=policies[i];
+        if(p->owner || p->requested || atomic_load(&p->effective) || p->active[0] || p->active[1] || p->retiring)ready=0;
+    }
+    unlock(s);return ready;
+}
 void fx_z63_video_init(FxZ63VideoQuality *s) {
     fx_video_quality_init(&s->policy);fx_video_quality_init(&s->raw);
     fx_video_quality_init(&s->h265);atomic_init(&s->ready,0u);atomic_init(&s->playback,0u);

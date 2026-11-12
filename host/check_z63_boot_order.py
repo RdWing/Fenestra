@@ -15,6 +15,7 @@ from build_z63_adapter import load_application
 from z63_core_absent_smoke import boot
 from z63_emulator_smoke import scanout_fraction
 from z63_placement import guards, MARKER
+from z63_activation import profile_for
 
 
 def live_colour(path):
@@ -31,7 +32,7 @@ def live_colour(path):
 def main():
     sources={name:(Path(__file__).parent/name).read_bytes() for name in (
         'check_z63_boot_order.py','z63_core_absent_smoke.py','z63_emulator_smoke.py',
-        'z63_placement.py','build_z63_adapter.py')}
+        'z63_placement.py','z63_activation.py','build_z63_adapter.py')}
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('qemu','original','application','receipt','loader','snor','nand','mcu','card','raw','plugin','output-dir'):
         p.add_argument('--'+name,type=Path,required=True)
@@ -62,7 +63,7 @@ def main():
     calls={row['address'] for row in profile['ui_calls']}
     if r.get('video'):calls.update(row['address'] for row in profile['video_quality']['hooks'] if row.get('link'))
     hooks={int(site,16):(r['symbols'][name],int(site,16) in calls) for site,name in r['hooks'].items()}
-    guard_bytes,table=guards(profile,original,hooks,inactive[begin-base:end-base],entry)
+    guard_bytes,table=guards(profile_for(profile,r.get('runtime')),original,hooks,inactive[begin-base:end-base],entry,bytes.fromhex(r['build_identity']))
     assert table=={int(k,16):int(v,16) for k,v in r['guards'].items()}
     offset=profile['guard_region']['begin']-base;inactive[offset:offset+len(guard_bytes)]=guard_bytes
     images={'stock':original,'intact':image,'absent-core-marker-kept':absent,'initializer-no-state':inactive}
@@ -89,6 +90,7 @@ def main():
         if name!='intact':assert root==profile['late_initialization']['original_descriptor'],record
         if a.stale_state:
             record['stale_fixture_verified_before_main']=True
+            record['stale_active_and_session_verified_before_main']=True
             assert root!=0xa10000000,record
         copied=(out/name/'copied-guards.bin').read_bytes()
         record['copied_guards_match']=copied==data[g0-base:g1-base]

@@ -16,6 +16,7 @@
 #ifdef FX_Z63_RUNTIME
 #include "runtime.h"
 #include "startup.h"
+#include "activation.h"
 #endif
 #ifdef FX_Z63_UI
 #include "ui.h"
@@ -44,6 +45,7 @@ typedef struct {
 #ifdef FX_Z63_RUNTIME
     _Atomic(FxZ63Runtime *) runtime;
     FxZ63Startup startup;
+    FxZ63Activation activation;
     uint16_t boot_text[3][64];
 #endif
 #ifdef FX_Z63_PTP
@@ -57,6 +59,7 @@ typedef struct {
     struct {FxNativeDescriptor descriptor;uint64_t guard_zero;} preparing;
 } State;
 _Static_assert(offsetof(State,magic)==64,"copied guard state identity offset");
+_Static_assert(offsetof(State,activated)==76,"copied guard feature admission offset");
 _Static_assert(offsetof(FxNativePage,descriptor)==80,"copied guard descriptor slot");
 #ifdef FX_Z63_UI
 const uint32_t fx_z63_menu_ui_offset=offsetof(State,ui);
@@ -83,16 +86,56 @@ extern void fx_z63_probe_module_start(void);
 const uint32_t fx_z63_startup_layout[]={0x46584236u,1u,offsetof(State,startup),
     offsetof(FxZ63Startup,phase),offsetof(FxZ63Startup,desired),offsetof(FxZ63Startup,error),
     offsetof(FxZ63Startup,shutdown_done)};
+__attribute__((used,retain)) const uint32_t fx_z63_activation_layout[]={0x46414354u,1u,
+    offsetof(State,activation),offsetof(State,activated),offsetof(FxZ63Activation,owned),
+    offsetof(FxZ63Activation,resume),offsetof(FxZ63Activation,wake_after_drain)};
 static FxResult start_modules(void *context) {
     State *s=context;
     if(s!=state() || !fx_z63_lifecycle_accepts_work(&s->lifecycle) || atomic_load(&s->activated))return FX_STATE;
 #ifdef FX_Z63_UI
     FxResult r=fx_z63_ui_freeze();if(r!=FX_OK)return r;
 #endif
+    FxResult installed=fx_z63_activation_install(&s->activation);
+    if(installed!=FX_OK)return installed;
     uint32_t zero=0u;
-    if(!atomic_compare_exchange_strong(&s->activated,&zero,1u))return FX_STATE;
+    if(!fx_z63_lifecycle_accepts_work(&s->lifecycle) || atomic_load(&s->startup.shutdown) ||
+       !atomic_compare_exchange_strong(&s->activated,&zero,1u)) {
+        (void)fx_z63_activation_restore(&s->activation);return FX_STATE;
+    }
     fx_z63_probe_module_start();
     return atomic_load_explicit(&s->runtime,memory_order_acquire)?FX_OK:FX_BUDGET;
+}
+static FxResult validate_activation(void *context) {
+    State *s=context;
+    if(s!=state() || !fx_z63_lifecycle_accepts_work(&s->lifecycle))return FX_STATE;
+    return fx_z63_activation_admit(&s->activation,&s->startup.files);
+}
+static void activation_committed(void *context,uint64_t token) {
+    State *s=context;fx_z63_activation_running(&s->activation,token);
+}
+static FxResult activation_quiesced(void *context) {
+    State *s=context;
+#ifdef FX_Z63_VIDEO
+    if(!fx_z63_video_quiescent(&s->video))return FX_BUSY;
+#endif
+    atomic_store_explicit(&s->activated,0u,memory_order_release);
+    return fx_z63_activation_restore(&s->activation);
+}
+static void activation_cleaned(void *context,FxResult result) {
+    State *s=context;fx_z63_activation_cleaned(&s->activation,result);
+}
+static void activation_stop(void *context) {
+    State *s=context;
+    uint32_t active=1u;
+    if(!atomic_compare_exchange_strong(&s->activated,&active,3u))return;
+    fx_z63_lifecycle_record(&s->lifecycle,8u);
+    fx_z63_activation_retire(&s->activation,0);
+#ifdef FX_Z63_UI
+    fx_z63_ui_shutdown();
+#endif
+    fx_z63_runtime_stop(atomic_load_explicit(&s->runtime,memory_order_acquire));
+    atomic_store(&s->startup.cleanup_window,1u);
+    atomic_store_explicit(&s->startup.shutdown,1u,memory_order_release);
 }
 static uint32_t runtime_state(void *context) {
     State *s=context;return fx_z63_runtime_state(atomic_load_explicit(&s->runtime,memory_order_acquire));
@@ -102,8 +145,8 @@ static uint32_t boot_command(uint32_t command) {
         (void)fx_z63_startup_request(&s->startup,command);
     return 1u;
 }
-static uint32_t auto_toggle(void *context){(void)context;return boot_command(FX_Z63_BOOT_AUTO);}
-static uint32_t guard_clear(void *context){(void)context;return boot_command(FX_Z63_BOOT_CLEAR);}
+static uint32_t auto_toggle(void *context){(void)context;return boot_command(FX_Z63_BOOT_DEACTIVATE);}
+static uint32_t guard_clear(void *context){(void)context;return 1u;}
 #endif
 static uint32_t activate(void *context) {
 #ifdef FX_Z63_RUNTIME
@@ -143,7 +186,7 @@ FxModuleBus *fx_native_module_bus(void) {
 FxLinuxBridge *fx_z63_menu_linux(void){State *s=state();return s?&s->linux:0;}
 FxRtos *fx_z63_menu_rtos(void){State *s=state();return s?&s->rtos:0;}
 FxPtp *fx_z63_menu_ptp(void){State *s=state();return s?&s->ptp:0;}
-int fx_z63_menu_ptp_active(void){State *s=state();return s && fx_z63_lifecycle_accepts_work(&s->lifecycle);}
+int fx_z63_menu_ptp_active(void){State *s=state();return s && atomic_load(&s->activated) && fx_z63_lifecycle_accepts_work(&s->lifecycle);}
 extern void fx_z63_probe_module_result(uint32_t,uint32_t,uint64_t);
 static void usb_task_status(void) {
     uint64_t info[32]={0};int32_t id=*(const volatile int32_t *)(uintptr_t)UINT64_C(0xa0305c700);
@@ -259,6 +302,11 @@ void fx_z63_menu_install(void) {
 #ifdef FX_Z63_RUNTIME
     fx_z63_startup_init(&s->startup);s->startup.context=s;
     s->startup.activate=start_modules;s->startup.runtime_state=runtime_state;
+    fx_z63_activation_init(&s->activation);
+    s->startup.validate=validate_activation;s->startup.committed=activation_committed;
+    s->startup.quiesced=activation_quiesced;s->startup.resume=s->activation.resume;
+    s->startup.stop=activation_stop;s->startup.cleaned=activation_cleaned;
+    s->startup.resume_token=s->activation.resume?fx_z63_activation_token():0u;
 #endif
     const FxNativeEvent *original=(const FxNativeEvent *)(uintptr_t)UINT64_C(0x43e5c558);
     /* The original table has 56 records. Keep the checked navigation prefix,
@@ -335,7 +383,13 @@ void fx_z63_menu_install(void) {
     }
 }
 #ifdef FX_Z63_RUNTIME
-void fx_z63_menu_set_runtime(FxZ63Runtime *runtime){State *s=state();if(s)atomic_store_explicit(&s->runtime,runtime,memory_order_release);}
+void fx_z63_menu_set_runtime(FxZ63Runtime *runtime) {
+    State *s=state();if(!s)return;
+    /* SC publication/closure prevents both sides missing one another: either
+     * the shutdown owner sees this runtime, or this publisher sees closure. */
+    atomic_store(&s->runtime,runtime);
+    if(atomic_load(&s->activated)!=1u || !fx_z63_lifecycle_accepts_work(&s->lifecycle))fx_z63_runtime_stop(runtime);
+}
 #endif
 void fx_z63_menu_lifecycle(uint32_t event) {
     State *s=state();if(!s)return;fx_z63_lifecycle_record(&s->lifecycle,event);
@@ -344,7 +398,12 @@ void fx_z63_menu_lifecycle(uint32_t event) {
 #endif
 #ifdef FX_Z63_RUNTIME
     if(event==8u)atomic_store_explicit(&s->startup.shutdown,1u,memory_order_release);
-    if(event==8u || event==24u)fx_z63_runtime_stop(atomic_load_explicit(&s->runtime,memory_order_acquire));
+    if(event==8u || event==24u) {
+        uint32_t prior=0u;
+        if(event==8u || atomic_load(&s->startup.started))prior=atomic_fetch_or(&s->activated,2u);
+        if(prior==1u)fx_z63_activation_retire(&s->activation,event==8u);
+        fx_z63_runtime_stop(atomic_load(&s->runtime));
+    }
     if(event==8u || event==24u)fx_z63_startup_shutdown(&s->startup);
     if(event==25u && fx_z63_lifecycle_accepts_work(&s->lifecycle))
         (void)fx_z63_startup_start(&s->startup);
@@ -365,13 +424,13 @@ FxNativePage *fx_z63_menu_page(uint32_t group,uint32_t id) {
     uintptr_t root=((volatile uintptr_t *)(uintptr_t)UINT64_C(0xa03420d50))[group];
     FxNativePage *result=root?(FxNativePage *)(root+(uintptr_t)id*96u):0;
 #ifdef FX_Z63_VIDEO
-    if(s && group==2u && id==266u)return fx_z63_video_menu_parent(result,s->navigation,&s->menu.rows[1]);
+    if(s && atomic_load(&s->activated)==1u && group==2u && id==266u)return fx_z63_video_menu_parent(result,s->navigation,&s->menu.rows[1]);
 #endif
     return result;
 }
 void fx_z63_menu_text(int32_t language,int32_t id,const uint16_t **text,uint32_t *bytes) {
     static const uint16_t title[]={'F','e','n','e','s','t','r','a'};
-    static const uint16_t run[]={'S','t','a','r','t',' ','m','o','d','u','l','e','s'};
+    static const uint16_t run[]={'A','c','t','i','v','a','t','e',' ','F','e','n','e','s','t','r','a'};
 #ifdef FX_Z63_PTP
     static const uint16_t debug[]={'U','S','B',' ','d','e','b','u','g','g','i','n','g'};
 #endif
@@ -383,13 +442,27 @@ void fx_z63_menu_text(int32_t language,int32_t id,const uint16_t **text,uint32_t
 #ifdef FX_Z63_RUNTIME
         if(id>=(int32_t)TEXT+4 && id<=(int32_t)TEXT+6) {
             State *s=state();uint32_t row=(uint32_t)id-TEXT-4u;
-            const char *label="Clear startup guard";
-            if(!row)label=atomic_load(&s->startup.desired)&FX_STARTUP_AUTO?"Autostart: On":"Autostart: Off";
+            uint32_t phase=atomic_load_explicit(&s->startup.phase,memory_order_acquire);
+            const char *label=phase==FX_STARTUP_ABNORMAL?"Startup guard: inspect card":
+                fx_z63_activation_update_requires_restart()?"Update: full restart required":"Update: stock session available";
+            if(!row)label="Deactivate Fenestra";
             if(row==2u) {
                 static const char *const phases[]={"Startup: Checking","Startup: Ready","Startup: Guard present",
                     "Startup: I/O error","Startup: Armed","Startup: Running","Startup: Fault","Startup: Stopped"};
-                uint32_t phase=atomic_load_explicit(&s->startup.phase,memory_order_acquire);
                 label=phase<8u?phases[phase]:"Startup: Unknown";
+                uint32_t error=atomic_load(&s->startup.error);
+                if(phase==FX_STARTUP_READY && error==FX_EMPTY)label="Stock: enable file missing";
+                else if(phase==FX_STARTUP_READY && error==FX_INTEGRITY)label="Stock: enable file invalid";
+                else if(phase==FX_STARTUP_READY && error==FX_STATE)label="Stock: restart required";
+                else if(phase==FX_STARTUP_READY && error==FX_CAPABILITY)label="Stock: mapping check failed";
+                else if(phase==FX_STARTUP_READY && error==FX_IO)label="Stock: card I/O failed";
+                else if(phase==FX_STARTUP_READY && error==FX_CLOSE)label="Stock: card close uncertain";
+                else if(phase==FX_STARTUP_READY && error==FX_BUSY)label="Stock: activation busy";
+                uint32_t activation=atomic_load(&s->activation.phase);
+                if(activation==FX_ACT_DRAINING)label="Stopping: native work pending";
+                else if(activation==FX_ACT_FAULT)label="Fault: resources retained";
+                else if(activation==FX_ACT_LATCHED)label="Stock: restart to activate";
+                if(phase==FX_STARTUP_STOPPED && fx_z63_activation_updating())label="Stock: restart for Fenestra";
             }
             uint32_t n=0u;while(label[n] && n<63u){s->boot_text[row][n]=(uint16_t)(uint8_t)label[n];++n;}
             s->boot_text[row][n]=0u;*text=s->boot_text[row];*bytes=n*2u;return;
