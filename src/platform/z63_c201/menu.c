@@ -52,7 +52,12 @@ typedef struct {
 #ifdef FX_Z63_SDK
     FxHookRegistry hooks;FxNativeMappingRegistry mappings;_Atomic(FxModuleBus *) bus;
 #endif
+    /* Stock-compatible claim while all optional objects remain unpublished.
+     * Its zero guard word prevents pre-core admission during construction. */
+    struct {FxNativeDescriptor descriptor;uint64_t guard_zero;} preparing;
 } State;
+_Static_assert(offsetof(State,magic)==64,"copied guard state identity offset");
+_Static_assert(offsetof(FxNativePage,descriptor)==80,"copied guard descriptor slot");
 #ifdef FX_Z63_UI
 const uint32_t fx_z63_menu_ui_offset=offsetof(State,ui);
 const uint32_t fx_z63_menu_runtime_offset=offsetof(State,runtime);
@@ -230,24 +235,22 @@ static State *prepare(void) {
     const FxNativeRow *rows=(const FxNativeRow *)d->rows;
     if(rows[47].word[0]!=912u)return 0;
     State *s=allocate(0,(uint32_t)sizeof(*s));if(!s)return 0;
-    memset(s,0,sizeof(*s));s->descriptor=*d;
-#ifdef FX_Z63_VIDEO
-    fx_z63_video_init(&s->video);
-#endif
-    /* The native descriptor stays byte-for-byte Stock until installation.
-     * Publish this retained context before the first dispatcher registration,
-     * so no registered native job can predate its admission counters. The
-     * observed C2.01 startup invokes both constructors serially; CAS also
-     * refuses a competing descriptor.
-     * A losing allocation is retained because its native mutex is registered. */
-    s->magic=MAGIC;uintptr_t expected=UINT64_C(0xa028d5590);
+    memset(s,0,sizeof(*s));s->descriptor=*d;s->preparing.descriptor=*d;
+    /* Claim with an unchanged descriptor, not the descriptor being built. */
+    uintptr_t expected=UINT64_C(0xa028d5590);
     if(!atomic_compare_exchange_strong_explicit((_Atomic uintptr_t *)&page->descriptor,&expected,
-        (uintptr_t)s,memory_order_release,memory_order_acquire))return prepared_state();
+        (uintptr_t)&s->preparing,memory_order_acq_rel,memory_order_acquire)) {
+        release(0,s);return 0;
+    }
     return s;
 }
-#ifdef FX_Z63_VIDEO
-FxZ63VideoQuality *fx_z63_menu_prepare_video(void){State *s=prepare();return s?&s->video:0;}
-#endif
+static void abandon(State *s) {
+    uintptr_t expected=(uintptr_t)&s->preparing;
+    (void)atomic_compare_exchange_strong_explicit((_Atomic uintptr_t *)&setup()->descriptor,&expected,
+        UINT64_C(0xa028d5590),memory_order_acq_rel,memory_order_acquire);
+    /* Failed UI/native allocations remain retained until reboot: their
+     * internal registration lifetimes do not permit blanket freeing here. */
+}
 void fx_z63_menu_install(void) {
     if(state())return;
     State *s=prepare();if(!s)return;
@@ -262,7 +265,7 @@ void fx_z63_menu_install(void) {
      * then its actual terminal; never scan it with the shared 18-record bound. */
     memcpy(s->navigation,original,14u*sizeof(*original));
     s->navigation[14]=original[55];
-    if(s->navigation[14].event!=0x3f2u)return;
+    if(s->navigation[14].event!=0x3f2u){abandon(s);return;}
     uint32_t select[4]={0x2b3u,0x2b8u,0x2ccu,0x2dbu};
     FxNativeMenuProfile profile={page,&rows[47],s->navigation,0x3f2u,0x2abu,{0x2b3u,0x2b8u,0x2ccu,0x2dbu},0x712u,690u};
     uintptr_t callbacks[5]={(uintptr_t)noop,(uintptr_t)noop,UINT64_C(0x403c32c8),(uintptr_t)noop,(uintptr_t)noop};
@@ -281,29 +284,55 @@ void fx_z63_menu_install(void) {
                              ,{TEXT+6u,0x7ff8u,0,0,(uintptr_t)noop,0x712u}
 #endif
                              };
-    if(fx_native_menu_build(&s->menu,&profile,PAGE,TEXT,entries,(uint32_t)(sizeof(entries)/sizeof(*entries)),callbacks)!=FX_OK)return;
+    if(fx_native_menu_build(&s->menu,&profile,PAGE,TEXT,entries,(uint32_t)(sizeof(entries)/sizeof(*entries)),callbacks)!=FX_OK){abandon(s);return;}
     memcpy(s->rows+1,rows,50u*sizeof(*rows));
     memcpy(s->events+1,(const void *)d->events,50u*sizeof(uintptr_t));
     s->rows[0]=rows[47];s->rows[0].word[0]=TEXT;s->rows[0].word[2]=65535u;s->rows[0].word[6]=0x7ff0u;
-    if(fx_native_menu_link(s->entry,s->navigation,0x3f2u,select,(uintptr_t)noop,PAGE)!=FX_OK)return;
+    if(fx_native_menu_link(s->entry,s->navigation,0x3f2u,select,(uintptr_t)noop,PAGE)!=FX_OK){abandon(s);return;}
     s->events[0]=(uintptr_t)s->entry;s->descriptor.rows=(uintptr_t)s->rows;s->descriptor.events=(uintptr_t)s->events;s->descriptor.count=51u;
     const uint8_t *fonts=*(const uint8_t *volatile *)(uintptr_t)UINT64_C(0xa0305f980);
     const uintptr_t *attributes=*(const uintptr_t *volatile *)(uintptr_t)UINT64_C(0xa0305f990);
-    if(!fonts || !attributes || !attributes[1])return;
-    if(fx_native_text_bank_create((FxIndexMemory){0,allocate,release},fonts,attributes,TEXT,29u,(TEXT+3u+(uint32_t)(sizeof(entries)/sizeof(*entries)-2u)),fonts[912],((const uint8_t *)attributes[1])[912],&s->bank)!=FX_OK)return;
+    if(!fonts || !attributes || !attributes[1]){abandon(s);return;}
+    if(fx_native_text_bank_create((FxIndexMemory){0,allocate,release},fonts,attributes,TEXT,29u,(TEXT+3u+(uint32_t)(sizeof(entries)/sizeof(*entries)-2u)),fonts[912],((const uint8_t *)attributes[1])[912],&s->bank)!=FX_OK){abandon(s);return;}
 #ifdef FX_Z63_PTP
     fx_z63_ptp_init(&s->ptp);
     fx_linux_account_packets(&s->linux,(FxIndexMemory){0,allocate,release},(FxAllocationObserver){0},(FxAllocationObserver){0});
 #endif
 #ifdef FX_Z63_UI
     FxNativeMenuProfile apps_profile=profile;apps_profile.page=&s->menu.page;apps_profile.back=PAGE;
-    s->ui=fx_z63_ui_create(&apps_profile);if(!s->ui)return;
+    s->ui=fx_z63_ui_create(&apps_profile);if(!s->ui){abandon(s);return;}
+#endif
+#ifdef FX_Z63_VIDEO
+    fx_z63_video_init(&s->video);
+    if(!atomic_load_explicit(&s->video.ready,memory_order_acquire)){abandon(s);return;}
 #endif
     fx_z63_lifecycle_record(&s->lifecycle,20u);
-    *(volatile uintptr_t *)(uintptr_t)UINT64_C(0xa0305f980)=(uintptr_t)s->bank->fonts;
-    *(volatile uintptr_t *)(uintptr_t)UINT64_C(0xa0305f990)=(uintptr_t)s->bank->attributes;
-    atomic_store_explicit(&s->installed,1u,memory_order_release);
-    atomic_store_explicit((_Atomic uintptr_t *)&page->descriptor,(uintptr_t)s,memory_order_release);
+    /* Expanded banks preserve every stock entry. Publish them only while the
+     * original roots still match; a competing owner must not be overwritten. */
+    uintptr_t prior=(uintptr_t)fonts;
+    if(!atomic_compare_exchange_strong((_Atomic uintptr_t *)(uintptr_t)UINT64_C(0xa0305f980),&prior,(uintptr_t)s->bank->fonts)) {
+        abandon(s);return;
+    }
+    prior=(uintptr_t)attributes;
+    if(!atomic_compare_exchange_strong((_Atomic uintptr_t *)(uintptr_t)UINT64_C(0xa0305f990),&prior,(uintptr_t)s->bank->attributes)) {
+        uintptr_t ours=(uintptr_t)s->bank->fonts;
+        (void)atomic_compare_exchange_strong((_Atomic uintptr_t *)(uintptr_t)UINT64_C(0xa0305f980),&ours,(uintptr_t)fonts);
+        abandon(s);return;
+    }
+    s->magic=MAGIC;atomic_store_explicit(&s->installed,1u,memory_order_release);
+    uintptr_t expected=(uintptr_t)&s->preparing;
+    if(!atomic_compare_exchange_strong_explicit((_Atomic uintptr_t *)&page->descriptor,&expected,
+        (uintptr_t)s,memory_order_acq_rel,memory_order_acquire)) {
+        atomic_store(&s->installed,0u);
+        uintptr_t ours=(uintptr_t)s->bank->fonts;
+        (void)atomic_compare_exchange_strong((_Atomic uintptr_t *)(uintptr_t)UINT64_C(0xa0305f980),&ours,(uintptr_t)fonts);
+        ours=(uintptr_t)s->bank->attributes;
+        (void)atomic_compare_exchange_strong((_Atomic uintptr_t *)(uintptr_t)UINT64_C(0xa0305f990),&ours,(uintptr_t)attributes);
+    } else {
+#ifdef FX_Z63_VIDEO
+        atomic_store_explicit(&s->video.late_join,1u,memory_order_release);
+#endif
+    }
 }
 #ifdef FX_Z63_RUNTIME
 void fx_z63_menu_set_runtime(FxZ63Runtime *runtime){State *s=state();if(s)atomic_store_explicit(&s->runtime,runtime,memory_order_release);}
@@ -314,9 +343,11 @@ void fx_z63_menu_lifecycle(uint32_t event) {
     if(event==8u || event==24u)fx_z63_ui_shutdown();
 #endif
 #ifdef FX_Z63_RUNTIME
+    if(event==8u)atomic_store_explicit(&s->startup.shutdown,1u,memory_order_release);
     if(event==8u || event==24u)fx_z63_runtime_stop(atomic_load_explicit(&s->runtime,memory_order_acquire));
     if(event==8u || event==24u)fx_z63_startup_shutdown(&s->startup);
-    if(event==25u)(void)fx_z63_startup_start(&s->startup);
+    if(event==25u && fx_z63_lifecycle_accepts_work(&s->lifecycle))
+        (void)fx_z63_startup_start(&s->startup);
 #endif
 }
 FxNativePage *fx_z63_menu_page(uint32_t group,uint32_t id) {

@@ -21,7 +21,7 @@ from z63_emulator_smoke import clone, scanout_fraction
 from z63_placement import marker_address, MARKER
 
 
-def boot(args, image, out, watch):
+def boot(args, image, out, watch, snapshots=()):
     out.mkdir()
     clone(args.nand.resolve(strict=True), out / 'nand.img')
     clone(args.card.resolve(strict=True), out / 'card.img')
@@ -32,6 +32,8 @@ def boot(args, image, out, watch):
             'mcu-image=' + str(args.mcu.resolve(strict=True)), 'z9-capture=on', 'cfexpress=on',
             'z9-capture-raw=' + str(args.raw.resolve(strict=True)), 'sio-sink=9:8:7',
             'imu-mg=1000:0:0', 'scanout-dump=' + str(out / 'frame.ppm')])
+        if getattr(args,'no_image_preload',False):machine+=',image-in-dram=off'
+        if getattr(args,'card_absent',False):machine+=',cfexpress-card=off'
         command = [str(args.qemu.resolve(strict=True)), '-machine', machine, '-cpu', 'cortex-a53',
             '-smp', '4,maxcpus=5', '-bios', str(image), '-serial', 'file:' + str(out / 'serial.log'),
             '-monitor', 'none', '-display', 'none', '-nic', 'none', '-action', 'shutdown=pause',
@@ -40,6 +42,12 @@ def boot(args, image, out, watch):
             '-qmp', 'unix:' + str(sock) + ',server=on,wait=off',
             '-plugin', str(args.plugin.resolve(strict=True)) + ',out=' + str(out / 'calls.log') +
             ',call=' + ':'.join(hex(a) for a in watch)]
+        if getattr(args,'stale_state',False):
+            # Explicit pre-reset RAM fixture: a stale owned-looking descriptor.
+            # Original startup must replace the initialized-data root before
+            # it can admit optional code. This is not a physical warm resume.
+            command += ['-S','-device','loader,addr=0xa02912e60,data=0xa10000000,data-len=8',
+                        '-device','loader,addr=0xa10000040,data=0x1465a634d,data-len=8']
         with (out / 'qemu.log').open('wb') as log:
             process = subprocess.Popen(command, stdout=log, stderr=log)
             try:
@@ -66,9 +74,21 @@ def boot(args, image, out, watch):
                             raise RuntimeError(response['error'])
 
                 qmp('qmp_capabilities')
+                if getattr(args,'stale_state',False):
+                    for name,address,value in (('stale-before-root.bin',0xa02912e60,0xa10000000),
+                                               ('stale-before-identity.bin',0xa10000040,0x1465a634d)):
+                        qmp('pmemsave',{'val':address,'size':8,'filename':str(out/name)})
+                        if int.from_bytes((out/name).read_bytes(),'little')!=value:
+                            raise RuntimeError('Stale startup fixture was not present before MAIN')
+                    qmp('cont')
                 time.sleep(args.seconds)
+                for name,address,size in snapshots:
+                    qmp('pmemsave',{'val':address,'size':size,'filename':str(out/name)})
                 qmp('screendump', {'filename': str(out / 'screen.ppm')})
                 status = qmp('query-status')
+                if getattr(args,'card_absent',False):
+                    status['card_detected']=qmp('qom-get',{'path':'/machine','property':'cfexpress-card'})
+                    if status['card_detected']:raise RuntimeError('No-card fixture lost its card-detect setting')
             finally:
                 process.kill()
                 process.wait()
@@ -83,6 +103,7 @@ def main():
     parser.add_argument('--seconds', type=float, default=35)
     parser.add_argument('--keep-marker', action='store_true',
                         help='retain the valid marker while clearing the core; requires corruption rejection')
+    parser.add_argument('--no-image-preload',action='store_true',help='let original MAIN copy its DRAM code windows')
     args = parser.parse_args()
     profile, original = load_application(args.original)
     receipt = json.loads(args.receipt.read_text())
@@ -113,6 +134,7 @@ def main():
     match = scanout_fraction(out / 'original' / 'screen.ppm', out / 'absent' / 'screen.ppm')
     result = dict(schema='fenestra.z63-core-absent/v1', candidate_sha256=receipt['candidate_sha256'],
         marker_retained=args.keep_marker,
+        dram_windows_preloaded=not args.no_image_preload,
         absent_sha256=hashlib.sha256(candidate).hexdigest(), seconds=args.seconds,
         original_status=stock_status, absent_status=status, guard_entries=len(guard_calls),
         core_entries=len(core_calls), scanout_match=match,

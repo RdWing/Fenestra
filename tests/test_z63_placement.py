@@ -93,12 +93,12 @@ class Z63PlacementTests(unittest.TestCase):
         struct.pack_into('<I', image, 0x500, 0x94000000 | 0x40)    # bl +0x100
         code, table = guards(self.profile, bytes(image), {entry: (0x40001010, False), call: (0x40001020, True)}, bytes(4088)+MARKER)
         self.assertEqual(code[:8], MARKER)
-        first = struct.unpack_from('<11I', code, table[entry]-0x40002200)
-        second = struct.unpack_from('<11I', code, table[call]-0x40002200)
-        self.assertEqual(table[call]-table[entry], 44)
-        self.assertEqual(first[9], 0xa9bf7bfd)  # displaced stock entry
-        self.assertEqual(first[10], 0x14000000 | (((entry+4-(table[entry]+40))//4)&0x3ffffff))
-        self.assertEqual(second[9], 0x14000000 | (((call+0x100-(table[call]+36))//4)&0x3ffffff))
+        first = struct.unpack_from('<12I', code, table[entry]-0x40002200)
+        second = struct.unpack_from('<12I', code, table[call]-0x40002200)
+        self.assertEqual(table[call]-table[entry], 48)
+        self.assertEqual(first[10], 0xa9bf7bfd)  # displaced stock entry
+        self.assertEqual(first[11], 0x14000000 | (((entry+4-(table[entry]+44))//4)&0x3ffffff))
+        self.assertEqual(second[10], 0x14000000 | (((call+0x100-(table[call]+40))//4)&0x3ffffff))
 
     def test_guard_rejects_pc_relative_entry(self):
         image = bytearray(self.image)

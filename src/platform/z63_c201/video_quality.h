@@ -13,11 +13,11 @@ typedef struct {
     _Atomic(FxZ63VideoMenuLease *) h265_menu_lease;
     _Atomic uint32_t settings_busy,save_generation,save_sequence,save_result;
     FxPlatformOwner *prores_owner,*h265_owner;
+    _Atomic uint32_t late_join;
 
 } FxZ63VideoQuality;
 void fx_z63_video_init(FxZ63VideoQuality *);
 FxZ63VideoQuality *fx_z63_menu_video(void);
-FxZ63VideoQuality *fx_z63_menu_prepare_video(void);
 FxResult fx_z63_video_resource(void *,uint32_t,const FxNamedBinding *,FxPlatformOwner *,uint64_t,
     uint64_t *,const FxServiceRequest *,FxServiceReply *);
 FxResult fx_z63_color_resource(void *,uint32_t,const FxNamedBinding *,FxPlatformOwner *,uint64_t,uint64_t *,const FxServiceRequest *,FxServiceReply *);

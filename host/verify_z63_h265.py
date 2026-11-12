@@ -41,6 +41,16 @@ def verify(application, build):
     cpu.mem_map(ram, 0x40000)
     cpu.reg_write(arm.UC_ARM64_REG_CPACR_EL1, 3 << 20)
     state, owner, cookie, request, reply, mode, out, stop = [ram+4096*i for i in range(8)]
+    # The guard now requires an owned published header. Keep that admission
+    # fixture separate from the substituted context getter, but use the real
+    # target offset so both identify the same controller storage.
+    video_layout = struct.unpack_from('<9I', image, symbols['fx_z63_video_layout']-BASE)
+    root = 0xa01000000
+    cpu.mem_map(root,0x10000)
+    cpu.mem_map(0xa02912000,4096)
+    cpu.mem_write(0xa02912e60,struct.pack('<Q',root))
+    cpu.mem_write(root+64,struct.pack('<II',0x465a634d,1))
+    state = root+video_layout[2]
     regs = [getattr(arm, 'UC_ARM64_REG_X'+str(i)) for i in range(8)]
     cpu.mem_map(0xa048bb000, 4096)
     cpu.mem_map(0xa03324000, 4096)
@@ -65,7 +75,7 @@ def verify(application, build):
             cpu.reg_write(register, args[i] if i < len(args) else 0)
         cpu.reg_write(arm.UC_ARM64_REG_SP, ram+0x3f000)
         cpu.reg_write(arm.UC_ARM64_REG_LR, stop)
-        cpu.emu_start(address, stop, count=20000)
+        cpu.emu_start(address, stop, count=4000000)
         if cpu.reg_read(arm.UC_ARM64_REG_PC) != stop:
             raise ValueError('H.265 instruction budget exhausted')
         return cpu.reg_read(regs[0])

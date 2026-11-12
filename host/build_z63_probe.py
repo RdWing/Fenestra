@@ -166,7 +166,7 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
         graph[name]=dependencies(dep,ROOT);compilations[name]=command;objects.append(str(obj))
     identity_inputs=[*sources,'host/build_z63_probe.py','host/build_z63_adapter.py','host/z63_bindings.py',
                      'host/compiler_dependencies.py','host/verify_z63_build.py','host/z63_package.py','host/z63_placement.py',
-                     'src/platform/z63_c201/guard_integrity.S','fenestra.py','targets/z63-c201.json','emulation/z63_probe.ld']
+                     'src/platform/z63_c201/guard_integrity.S','src/platform/z63_c201/guard_bootstrap.S','fenestra.py','targets/z63-c201.json','emulation/z63_probe.ld']
     if video:identity_inputs+=['host/z63_video.py','host/r3dne_profile.py','modules/r3dne/profile.json']
     header=(out/'z63_debug_identity.h').relative_to(ROOT).as_posix()
     configuration={}
@@ -188,7 +188,7 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
     elf = out / 'probe.elf'
     subprocess.run([str(linker), '-m', 'aarch64elf', '--gc-sections',
                     *['--defsym='+n+'='+hex(a) for n,a in video_returns.items()],
-                    *['--undefined=' + name for name in [*hooks.values(),*(['fx_z63_video_layout'] if video else []),*(['fx_z63_startup_layout','fx_z63_worker_layout'] if runtime else []),*(['fx_z63_panic_layout','fx_z63_menu_ui_offset','fx_z63_menu_runtime_offset','fx_z63_runtime_layout','fx_z63_scene_layout','fx_native_scene_metadata','fx_z63_ui_layout','fx_z63_manager_layout','fx_native_modules_metadata','fx_native_ui_editor_metadata','fx_native_ui_reader_metadata'] if ui else [])]], '--defsym=fx_z63_core_begin=0x%x' % begin, '--defsym=fx_z63_core_end=0x%x' % end,
+                    *['--undefined=' + name for name in [*hooks.values(),*(['fx_z63_system_after_start'] if menu else []),*(['fx_z63_video_layout'] if video else []),*(['fx_z63_startup_layout','fx_z63_worker_layout'] if runtime else []),*(['fx_z63_panic_layout','fx_z63_menu_ui_offset','fx_z63_menu_runtime_offset','fx_z63_runtime_layout','fx_z63_scene_layout','fx_native_scene_metadata','fx_z63_ui_layout','fx_z63_manager_layout','fx_native_modules_metadata','fx_native_ui_editor_metadata','fx_native_ui_reader_metadata'] if ui else [])]], '--defsym=fx_z63_core_begin=0x%x' % begin, '--defsym=fx_z63_core_end=0x%x' % end,
                     '-T', str(ROOT / 'emulation/z63_probe.ld'), *objects, '-o', str(elf)], check=True)
     binary = out / 'probe.bin'
     subprocess.run([str(Path(llvm_bin) / 'llvm-objcopy'), '-O', 'binary', str(elf), str(binary)], check=True)
@@ -214,7 +214,8 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
     calls = {row['address'] for row in profile['ui_calls']} if ui else set()
     if video:
         calls.update(row['address'] for row in profile['video_quality']['hooks'] if row.get('link'))
-    guard_code, guard_table = build_guards(profile, original, {a: (symbols[s], a in calls) for a, s in hooks.items()}, candidate[begin-base:end-base])
+    guard_profile = profile if menu else {k:v for k,v in profile.items() if k!='late_initialization'}
+    guard_code, guard_table = build_guards(guard_profile, original, {a: (symbols[s], a in calls) for a, s in hooks.items()}, candidate[begin-base:end-base], symbols.get('fx_z63_system_after_start') if menu else None)
     guard_begin = profile['guard_region']['begin']
     candidate[guard_begin-base:guard_begin-base+len(guard_code)] = guard_code
     for address in hooks:

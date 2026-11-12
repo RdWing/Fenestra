@@ -27,9 +27,41 @@ static uint32_t native_idle(void) {
     uint32_t state=*FN(0xa03d42100,volatile uint32_t *),kind=*FN(0xa03d42108,volatile uint32_t *);
     return (state==2u && kind!=12u) || (!state && !kind);
 }
+/* Called only with our mutex held, after the complete context was published.
+ * A pre-publication callback must have returned before its task can wait on
+ * the dispatcher flag. New callbacks cannot pass enter() while we hold this
+ * mutex. Do not infer quiescence from a registered pointer or a generic WAIT. */
+__attribute__((used,retain)) const uint32_t fx_z63_late_join_layout[]={0x464a4e31u,1u,
+    offsetof(FxZ63VideoQuality,ready),offsetof(FxZ63VideoQuality,late_join),
+    offsetof(FxZ63VideoQuality,policy),offsetof(FxZ63VideoQuality,raw),offsetof(FxZ63VideoQuality,h265),
+    offsetof(FxVideoQualityPolicy,registered),offsetof(FxVideoQualityPolicy,active),offsetof(FxVideoQualityPolicy,fault)};
+__attribute__((noinline)) static void join_waiting_domains(FxZ63VideoQuality *s) {
+    if(!atomic_load_explicit(&s->late_join,memory_order_acquire) || s->policy.fault || !native_idle())return;
+    static const uintptr_t objects[2]={UINT64_C(0xa03324b68),UINT64_C(0xa048baf98)};
+    static const uintptr_t callbacks[2]={UINT64_C(0x40d22770),UINT64_C(0x40755a54)};
+    static const uint32_t masks[2]={0x1fffu,0xf1ffffffu};
+    for(uint32_t domain=0u;domain<2u;++domain) {
+        uint32_t bit=1u<<domain;
+        if((s->policy.registered&bit) || s->policy.active[domain])continue;
+        const volatile uint8_t *object=(const volatile uint8_t *)objects[domain];
+        int32_t id=*(const volatile int32_t *)object;
+        int32_t flag=*(const volatile int32_t *)(object+0x38);
+        if(id<=0 || flag<=0 || *(const volatile uintptr_t *)(object+8)!=UINT64_C(0x40c0025c) ||
+           *(const volatile uintptr_t *)(object+0x48)!=callbacks[domain] ||
+           *(const volatile uint32_t *)(object+0x50)!=masks[domain])continue;
+        _Alignas(8) uint32_t info[20]={0};
+        if(FN(0x4018c8cc,int32_t (*)(int32_t,void *))(id,info) ||
+           info[0]!=4u || info[3]!=8u || info[4]!=(uint32_t)flag ||
+           id!=*(const volatile int32_t *)object || flag!=*(const volatile int32_t *)(object+0x38) ||
+           *(const volatile uintptr_t *)(object+8)!=UINT64_C(0x40c0025c) ||
+           *(const volatile uintptr_t *)(object+0x48)!=callbacks[domain] ||
+           *(const volatile uint32_t *)(object+0x50)!=masks[domain] || !native_idle())continue;
+        s->policy.registered|=bit;s->raw.registered|=bit;s->h265.registered|=bit;
+    }
+}
 static int lock(FxZ63VideoQuality *s) {
     if(!s || !atomic_load_explicit(&s->ready,memory_order_acquire))return 0;
-    if(FN(0x40d32f74,uint32_t (*)(void *))(s->mutex)==1u)return 1;
+    if(FN(0x40d32f74,uint32_t (*)(void *))(s->mutex)==1u){join_waiting_domains(s);return 1;}
     return 0;
 }
 static void unlock(FxZ63VideoQuality *s){FN(0x40d32f60,void (*)(void *))(s->mutex);}
@@ -40,6 +72,7 @@ void fx_z63_video_init(FxZ63VideoQuality *s) {
     atomic_init(&s->settings_busy,0u);atomic_init(&s->save_generation,0u);
     atomic_init(&s->save_sequence,0u);atomic_init(&s->save_result,0u);s->menu=0;
     s->prores_owner=0;s->h265_owner=0;
+    atomic_init(&s->late_join,0u);
     FN(0x40d32e64,void (*)(void *,const char *))(s->mutex,"FXVIDEO");
     if(FN(0x40d32f98,uint32_t (*)(void *,uint32_t))(s->mutex,0u)!=1u){s->policy.fault=1u;return;}
     unlock(s);atomic_store_explicit(&s->ready,1u,memory_order_release);
@@ -75,7 +108,10 @@ static void leave(FxZ63VideoQuality *s,uint32_t domain) {
 }
 static uint64_t registration(void *object,uintptr_t callback,uint32_t mask,void *config,
     uint32_t domain,uintptr_t expected_object,uintptr_t expected_callback,uint32_t expected_mask) {
-    FxZ63VideoQuality *s=fx_z63_menu_prepare_video();
+    /* Startup registration must not allocate Fenestra state. After the stock
+     * completion event, late initialization publishes the context. Both native
+     * callback domains must subsequently acknowledge it before selection. */
+    FxZ63VideoQuality *s=fx_z63_menu_video();
     if(s && ((uintptr_t)object!=expected_object || callback!=expected_callback || mask!=expected_mask))
         atomic_store_explicit(&s->policy.fault,1u,memory_order_release);
     s=enter(domain,1u);
@@ -331,7 +367,7 @@ static FxResult persisted_select(FxPlatformOwner *owner,uint64_t token,uint32_t 
     if (!h265 && choice && (s->raw.requested || atomic_load(&s->raw.effective))) {
         refused=FX_BUSY;goto refuse;
     }
-    if (!native_idle() || policy->active[0] || policy->active[1]) {
+    if (policy->registered!=3u || !native_idle() || policy->active[0] || policy->active[1]) {
         refused=FX_BUSY;goto refuse;
     }
     uint32_t prior_choice=policy->requested;

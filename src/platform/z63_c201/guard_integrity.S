@@ -4,7 +4,9 @@
  * allocation, firmware call, core call, mutable latch or persistent write.
  * Parameters and the CRC table live beside this routine in copied stock text.
  * The linker forbids writable static storage in the checked core.
- * Return w16 == 0 for valid, nonzero for absent/corrupt. */
+ * Input w16 == 1 bypasses the state gate only for the post-stock bootstrap.
+ * Other entries require the owned descriptor published by late initialization.
+ * Return w16 == 0 for valid, nonzero for inactive/absent/corrupt. */
 .text
 .p2align 3
 .global fx_guard_integrity
@@ -15,6 +17,27 @@ fx_guard_integrity:
     mrs x9,nzcv
     str x9,[sp,#48]
     adr x9,fx_guard_parameters
+    cmp w16,#1
+    b.eq 4f
+    ldr x12,[x9,#32]             /* Original Setup page's descriptor slot. */
+    cbz x12,4f                  /* Synthetic/non-gated profile. */
+    ldar x12,[x12]
+    ldr x13,[x9,#40]
+    cmp x12,x13
+    b.eq 2f
+    tst x12,#7
+    b.ne 2f
+    ldr x13,[x9,#48]
+    cmp x12,x13
+    b.lo 2f
+    ldr x13,[x9,#56]
+    cmp x12,x13
+    b.hi 2f
+    ldr w13,[x12,#64]            /* State.magic, after native descriptor. */
+    ldr w14,[x9,#64]
+    cmp w13,w14
+    b.ne 2f
+4:
     ldp x17,x10,[x9]
     ldur x12,[x10,#-8]
     ldr x13,[x9,#24]
@@ -46,6 +69,6 @@ fx_guard_integrity:
 .p2align 3
 .global fx_guard_parameters
 fx_guard_parameters:
-    .space 32
+    .space 72
 .global fx_guard_crc_table
 fx_guard_crc_table:

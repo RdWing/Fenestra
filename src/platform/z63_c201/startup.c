@@ -28,7 +28,9 @@ static void activate(FxZ63Startup *s) {
 }
 static void worker(void *context) {
     FxZ63Startup *s=context;
-    (void)fx_startup_inspect(&s->journal,&s->io);publish(s);
+    if(!atomic_load_explicit(&s->shutdown,memory_order_acquire))
+        (void)fx_startup_inspect(&s->journal,&s->io);
+    publish(s);
     for(;;) {
         if(atomic_load_explicit(&s->shutdown,memory_order_acquire)) {
             /* The SYSCTL owner limits this window. Do not remove a guard
@@ -68,8 +70,12 @@ void fx_z63_startup_init(FxZ63Startup *s) {
 }
 FxResult fx_z63_startup_start(FxZ63Startup *s) {
     if(!s || !s->activate || !s->runtime_state)return FX_ARGUMENT;
+    if(atomic_load_explicit(&s->shutdown,memory_order_acquire))return FX_STATE;
     uint32_t zero=0u;
     if(!atomic_compare_exchange_strong(&s->started,&zero,1u))return s->task.id>0?FX_OK:FX_BUSY;
+    if(atomic_load_explicit(&s->shutdown,memory_order_acquire)) {
+        atomic_store_explicit(&s->shutdown_done,1u,memory_order_release);return FX_STATE;
+    }
     FxResult r=fx_z63_task_start(&s->task,worker,s,s->stack,sizeof(s->stack));
     if(r!=FX_OK){atomic_store(&s->error,r);atomic_store(&s->phase,FX_STARTUP_IO_ERROR);}
     return r;
@@ -81,7 +87,11 @@ FxResult fx_z63_startup_request(FxZ63Startup *s,uint32_t command) {
     return atomic_compare_exchange_strong_explicit(&s->command,&zero,command,memory_order_release,memory_order_relaxed)?FX_OK:FX_BUSY;
 }
 void fx_z63_startup_shutdown(FxZ63Startup *s) {
-    if(!s || !atomic_load(&s->started))return;
+    if(!s)return;
+    if(!atomic_load(&s->started)) {
+        if(atomic_load(&s->shutdown))atomic_store(&s->shutdown_done,1u);
+        return;
+    }
     atomic_store(&s->cleanup_window,1u);atomic_store_explicit(&s->shutdown,1u,memory_order_release);
     for(uint32_t i=0u;i<50u && !atomic_load_explicit(&s->shutdown_done,memory_order_acquire);++i)
         if(fx_z63_task_delay_ticks(10u)!=FX_OK)break;

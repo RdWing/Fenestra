@@ -128,6 +128,7 @@ def main():
     parser.add_argument('--nvme-serial',default='LOCALTEST',help='explicit virtual NVMe identity for matched controls')
     parser.add_argument('--mode-dial',choices=('P','S','A','M','AUTO','U1','U2','U3'),help='explicit emulator mode-dial fixture')
     parser.add_argument('--seconds', type=float, default=35)
+    parser.add_argument('--no-image-preload',action='store_true',help='let original MAIN copy its DRAM code windows')
     parser.add_argument('--module-count',type=int,default=1,help='expected inventory size for the runtime control')
     parser.add_argument('--keys', default='', help='comma-separated native MCU key presses after boot')
     parser.add_argument('--native-menu-test', action='store_true', help='navigate Setup/Fenestra, activate, Back and return to live view using MCU keys')
@@ -156,6 +157,7 @@ def main():
     parser.add_argument('--dma-copy-zero-model',action='store_true',help='explicitly enable the functional mode-zero DMA bridge in a compatible emulator')
     parser.add_argument('--video-properties',type=Path,help='external semicolon-separated functional video model properties')
     parser.add_argument('--prores-initial-choice',type=int,choices=range(5),default=0,help='expected restored ProRes choice on attachment')
+    parser.add_argument('--video-warm-first',action='store_true',help='prepare native Movie view before managed video tests')
     parser.add_argument('--h265-initial-tier',type=int,choices=range(5),default=0,help='expected restored tier at module attachment')
     parser.add_argument('--export-snor',action='store_true',help='save the modeled NOR image after acknowledged shutdown')
     parser.add_argument('--raw-record-choice',type=int,choices=(0,1),help='record in native N-RAW after selecting Stock or R3D NE')
@@ -243,6 +245,7 @@ def main():
             'z9-capture-raw=' + str(args.raw.resolve(strict=True)), 'sio-sink=9:8:7',
             'imu-mg=1000:0:0', 'scanout-dump=' + str(out / 'frame.ppm')])
         if args.mode_dial:machine+=',mode-dial='+args.mode_dial
+        if args.no_image_preload:machine+=',image-in-dram=off'
         if args.dma_copy_zero_model:machine+=',dma-copy-zero-model=on'
         if args.video_properties:
             properties=args.video_properties.read_text().strip().split(';')
@@ -417,6 +420,10 @@ def main():
                 menu_exit_presses = 0
                 scanout_matches = None
                 menu_matches = None
+                if args.video_warm_first and not args.raw_test:
+                    if not args.video_test:raise ValueError('--video-warm-first requires --video-test')
+                    keypress('lever=video');time.sleep(10)
+                    if not qmp('query-status').get('running'):raise RuntimeError('Model stopped during native Movie preparation')
                 if args.raw_test:
                     if args.raw_prepare=='warm-first':
                         keypress('lever=video');time.sleep(10)
@@ -661,8 +668,9 @@ def main():
                                 policy_offset=raw_layout[2]
                             initial=video_state()
                             expected_initial=0 if args.raw_test else args.h265_initial_tier if args.h265_test else args.prores_initial_choice
+                            (out/'video-initial.json').write_text(json.dumps(initial,indent=2)+'\n')
                             if initial['effective']!=expected_initial or initial['requested']!=expected_initial or initial['fault']:
-                                raise RuntimeError('Video module did not begin at Stock')
+                                raise RuntimeError('Video initial state differs from '+str(expected_initial)+': '+repr(initial))
                             selections=[];cursor=initial['requested']
                             choices=((1,2,3,4,0,4) if args.shutdown_test else (1,2,3,4,0)) if args.video_record_choice is None else (args.video_record_choice,)
                             if args.h265_record_tier is not None:choices=(0,args.h265_record_tier) if args.h265_record_tier else (1,0)
@@ -1529,6 +1537,7 @@ def main():
     result = dict(test_harness_sha256=hashlib.sha256(harness_source).hexdigest(),video=video_result,demo=demo_result,panic=panic_result,startup=startup_result,manager=manager_result,reader=reader_result,tasks=task_result,passed=passed, target='z63-c201', expected=args.expect, status=status,
         stages=stages, seconds=time.monotonic() - start, candidate_sha256=receipt['candidate_sha256'],
         qemu_sha256=hashlib.sha256(args.qemu.read_bytes()).hexdigest(),
+        dram_windows_preloaded=not args.no_image_preload,
         plugin_sha256=hashlib.sha256(args.plugin.read_bytes()).hexdigest(),
         scanout_channel_tolerance=args.scanout_channel_tolerance,
         live_view_exact_fraction=scanout_fraction(out/'before-menu.ppm',out/'returned.ppm') if (out/'returned.ppm').exists() else None,

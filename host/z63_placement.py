@@ -41,6 +41,16 @@ def constants(code):
 def check(profile, original):
     """Raise unless the code region survives original text relocation."""
     base = profile['image_base']
+    late = profile.get('late_initialization')
+    if late and profile.get('target') == 'z63-c201':
+        expected = dict(descriptor_slot=0xa02912e60, original_descriptor=0xa028d5590,
+                        state_min=0xa00000000, state_max=0xa40000000-72,
+                        state_magic=0x465a634d, state_magic_offset=64, bootstrap_event=20)
+        if late != expected:
+            raise ValueError('late initialization binding differs from C2.01')
+        offset = 0x5095000 + late['descriptor_slot']-0xa02808000
+        if struct.unpack_from('<Q', original, offset)[0] != late['original_descriptor']:
+            raise ValueError('original late-initialization descriptor differs')
     begin, end = (profile['probe_code_region'][name] for name in ('begin', 'end'))
     relocation = profile.get('text_relocation')
     if not relocation or not relocation.get('windows') or not relocation.get('routines'):
@@ -92,11 +102,20 @@ GUARD_WORDS = 8
 # guard_integrity.S linked at zero. All references are position independent.
 # The ARM regression assembles the source independently and checks these bytes.
 INTEGRITY_CODE = bytes.fromhex(
-    'e92bbca9eb3301a9ed3b02a909423bd5e91b00f969030010312940a9'
-    '4c815ff82d0d40f99f010debc10100542b1140b9100080126e030010'
-    '2c1640388c01104a8c1d0012cd596cb8b021504a3f020aeb43ffff54'
-    'f003302a10020b4a0200001430008052e91b40f909421bd5ed3b42a9'
-    'eb3341a9e92bc4a8c0035fd61f2003d5')
+    'e92bbca9eb3301a9ed3b02a909423bd5e91b00f9e90500101f06007160020054'
+    '2c1140f92c0200b48cfddfc82d1540f99f010debe00300549f0940f2a1030054'
+    '2d1940f99f010deb430300542d1d40f99f010debe80200548d4140b92e4140b9'
+    'bf010e6b61020054312940a94c815ff82d0d40f99f010debc10100542b1140b9'
+    '10008012ae0400102c1640388c01104a8c1d0012cd596cb8b021504a3f020aeb'
+    '43ffff54f003302a10020b4a0200001430008052e91b40f909421bd5ed3b42a9'
+    'eb3341a9e92bc4a8c0035fd61f2003d5'
+)
+BOOTSTRAP_CODE = bytes.fromhex(
+    'f047bfa9102040b91052005170000034f047c1a800000000f047c1a8e007bda9'
+    'fe0b00f900000000e00f00f91f2003d5f04702a9300080520000000050000035'
+    '00000000e00f40f9fe0b40f9f04742a9ffc30091c0035fd60000000000000000'
+    '000000000000000000000000'
+)
 
 
 def integrity_prefix(profile, core):
@@ -111,9 +130,13 @@ def integrity_prefix(profile, core):
         for _ in range(8):
             value = (value >> 1) ^ (0xedb88320 if value & 1 else 0)
         table.append(value)
-    assert len(INTEGRITY_CODE) == 128
+    assert len(INTEGRITY_CODE) == 208
+    late = profile.get('late_initialization', {})
     return (MARKER + INTEGRITY_CODE + struct.pack('<QQII8s', begin, end,
-            binascii.crc32(core), 0, MARKER) + struct.pack('<256I', *table))
+            binascii.crc32(core), 0, MARKER) +
+            struct.pack('<4QII', late.get('descriptor_slot', 0), late.get('original_descriptor', 0),
+                        late.get('state_min', 0), late.get('state_max', 0), late.get('state_magic', 0), 0) +
+            struct.pack('<256I', *table))
 
 
 def position_independent(word):
@@ -134,7 +157,7 @@ def marker_address(profile):
     return profile['probe_code_region']['end'] - len(MARKER)
 
 
-def guards(profile, original, hooks, core):
+def guards(profile, original, hooks, core, boot_entry=None):
     """Guard every core entry with bounded marker/whole-reservation CRC32.
 
     The validator and its expected checksum live in copied original text,
@@ -145,6 +168,12 @@ def guards(profile, original, hooks, core):
     base = profile['image_base']
     g0, g1 = (profile['guard_region'][name] for name in ('begin', 'end'))
     out = bytearray(integrity_prefix(profile, core))
+    bootstrap = None
+    if profile.get('late_initialization'):
+        if boot_entry is None or not profile['probe_code_region']['begin'] <= boot_entry < profile['probe_code_region']['end']-8:
+            raise ValueError('late initialization requires an in-core post-start entry')
+        bootstrap = g0 + len(out)
+        out += BOOTSTRAP_CODE
     table = {}
     video_hooks = {row['address']: row for row in profile.get('video_quality', {}).get('hooks', [])}
     for site in sorted(hooks):
@@ -161,13 +190,28 @@ def guards(profile, original, hooks, core):
             raise ValueError('hook site instruction cannot be displaced')
         # Save scratch registers and the incoming link before BL validation.
         # CBNZ does not disturb restored NZCV. Both exits restore the exact SP.
-        words = [0xa9be47f0, 0xf9000bfe, _branch(stub+8,g0+8,True),
-                 0x35000090, 0xf9400bfe, 0xa8c247f0, _branch(stub+24,target),
+        words = [0xa9be47f0, 0xf9000bfe, 0x52800010, _branch(stub+12,g0+8,True),
+                 0x35000090, 0xf9400bfe, 0xa8c247f0, _branch(stub+28,target),
                  0xf9400bfe, 0xa8c247f0]
-        words += ([_branch(stub+36,callee),0xd4200000] if call or tail else
-                  [word,_branch(stub+40,site+4)])
-        out += struct.pack('<11I', *words)
+        words += ([_branch(stub+40,callee),0xd4200000] if call or tail else
+                  [word,_branch(stub+44,site+4)])
+        out += struct.pack('<12I', *words)
         table[site] = stub
+    if bootstrap is not None:
+        site = profile['sysctl']['dispatcher']
+        if site not in table:raise ValueError('late bootstrap requires dispatcher hook')
+        normal = table[site]
+        offset = bootstrap-g0
+        for at, target, call in ((0x14,normal,False),(0x24,bootstrap+0x58,True),
+                                  (0x38,g0+8,True),(0x40,boot_entry,True)):
+            struct.pack_into('<I',out,offset+at,_branch(bootstrap+at,target,call))
+        # The original dispatcher prologue is independent of the optional core.
+        prologue = original[site-base:site-base+16]
+        if len(prologue)!=16 or any(w&0x3a000000!=0x28000000 for (w,) in struct.iter_unpack('<I',prologue)):
+            raise ValueError('unsupported stock bootstrap prologue')
+        out[offset+0x58:offset+0x68] = prologue
+        struct.pack_into('<I',out,offset+0x68,_branch(bootstrap+0x68,site+16))
+        table[site] = bootstrap
     if g0 + len(out) > g1:
         raise ValueError('guard region exhausted')
     return bytes(out), table

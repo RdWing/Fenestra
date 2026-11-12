@@ -102,7 +102,8 @@ def verify_application(original, candidate, receipt, profile):
         hooks[address] = (target, address in calls)
     # Rebuild every guard independently from the original image and the
     # receipt; the candidate must contain exactly those bytes and no others.
-    guard_code, guard_table = build_guards(profile, original, hooks, candidate[begin:end])
+    guard_profile = profile if receipt.get('menu') else {k:v for k,v in profile.items() if k!='late_initialization'}
+    guard_code, guard_table = build_guards(guard_profile, original, hooks, candidate[begin:end], receipt['symbols'].get('fx_z63_system_after_start') if receipt.get('menu') else None)
     g0, g1 = (profile['guard_region'][name] - base for name in ('begin', 'end'))
     if candidate[g0:g0 + len(guard_code)] != guard_code or any(candidate[g0 + len(guard_code):g1]):
         raise ValueError('boot hook guards differ')

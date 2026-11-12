@@ -598,8 +598,8 @@
       "transformed": true,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 19028,
-      "sha256": "e9dd1a4bf32f04b729228e202edd08ec8b5c29657dcb6ab166f9035eac5088e1"
+      "bytes": 19287,
+      "sha256": "d7dd835229eab983d665a31a027ea6f0496ee06be04d1a694d30b1234dbeed81"
     },
     {
       "path": "host/build_z9_core.py",
@@ -647,6 +647,16 @@
       "sha256": "e06b4d0b9ae6fac28a64ea535b09d5f080aca614cebcd212aa02f2be3da83f7e"
     },
     {
+      "path": "host/check_z63_boot_order.py",
+      "origin": "authored-for-public-distribution",
+      "snapshot_sha256": null,
+      "transformed": false,
+      "license": "CC-BY-NC-SA-4.0",
+      "additional_permission": "EXCEPTIONS.md",
+      "bytes": 7948,
+      "sha256": "89a3b8c04082833679e8aa0d6556c609d378b804fa6a271d738507a3cd669e37"
+    },
+    {
       "path": "host/check_z63_color_job.py",
       "bytes": 14270,
       "sha256": "abef8fffe97fa5e2a31266f4894c4578fbb0977ee6126479181f28428aa98fd8"
@@ -655,6 +665,26 @@
       "path": "host/check_z63_color_metadata.py",
       "bytes": 5572,
       "sha256": "01f923fd707b5bd1626311275d7b0107507559cbdc38487db70a7cbde11748c4"
+    },
+    {
+      "path": "host/check_z63_late_init.py",
+      "origin": "authored-for-public-distribution",
+      "snapshot_sha256": null,
+      "transformed": false,
+      "license": "CC-BY-NC-SA-4.0",
+      "additional_permission": "EXCEPTIONS.md",
+      "bytes": 9443,
+      "sha256": "72a775e0da2bafd9ca0368564be403d6f1545030e3313c65108f78d6f9215923"
+    },
+    {
+      "path": "host/check_z63_late_join.py",
+      "origin": "authored-for-public-distribution",
+      "snapshot_sha256": null,
+      "transformed": false,
+      "license": "CC-BY-NC-SA-4.0",
+      "additional_permission": "EXCEPTIONS.md",
+      "bytes": 6276,
+      "sha256": "715476374f9ab9b196724b5166e8c7dcc8c12ac3352076896c59bca4d4e7e064"
     },
     {
       "path": "host/check_z63_log_producers.py",
@@ -1163,13 +1193,13 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 16622,
-      "sha256": "c95df2fe62a3d122860e07546d563bf278de3c41bfb930869a120b25491d7968"
+      "bytes": 17165,
+      "sha256": "476f24786a3f08e32a12474ee3ef999854b7256d46df2abef8489d162a7b6026"
     },
     {
       "path": "host/verify_z63_video_hooks.py",
-      "bytes": 13448,
-      "sha256": "dcdbc74cc7fd4281ccb15100eae0a2cbc368d18bc77f642e676655a8cc6b2d32",
+      "bytes": 13883,
+      "sha256": "03b0784424785fd488d2364c4276f6492a12d01b7e0700f92db3742ca5561ee9",
       "origin": "authored-for-public-distribution",
       "snapshot_sha256": null,
       "transformed": false,
@@ -1213,8 +1243,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 6719,
-      "sha256": "0291a7d59d85a2f05e32aae9f47bc6800254c7aa6da7a397295471b2821060e0"
+      "bytes": 8506,
+      "sha256": "5a951f3642aac8d5ca5825cf1acac0ef873f99e19d07457b71ec80d3fec2bc6b"
     },
     {
       "path": "host/z63_emulator_smoke.py",
@@ -1223,8 +1253,8 @@
       "transformed": true,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 119881,
-      "sha256": "89e3a336b5c71160707f76aa1b53ce35aaea663fc362ec19c69dec22aeae4c39"
+      "bytes": 120743,
+      "sha256": "b75257ca80522d1cf8e1f0af11229171a265d83324541c2105a63b2bcd490319"
     },
     {
       "path": "host/z63_log_profile.py",
@@ -1253,8 +1283,8 @@
       "transformed": true,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 10229,
-      "sha256": "add2dae2cbe4a042ba6d0eafe783daeb5fdda063aded1eaf434a4688596baacd"
+      "bytes": 10438,
+      "sha256": "d8bb7bc16ddfcee44baa7ca57f288d8ce66bb1c978d5e1fa8b01e3233204ad2b"
     },
     {
       "path": "host/z63_placement.py",
@@ -1263,8 +1293,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 8535,
-      "sha256": "b78a45b9f7cd8d89edf9f09c6f19582bfb7f5b33ac4936ccf577df21f1905493"
+      "bytes": 11262,
+      "sha256": "554ee8ac7d5ecabb907f0a36885eacf0a0bae3af376732edfa45c60d7f928fe8"
     },
     {
       "path": "host/z63_video.py",
@@ -2708,8 +2738,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 3433,
-      "sha256": "0af6eb90a6b1e7f630de1214cfc48f559e096d3c49e0d548cebee0980315f0cd"
+      "bytes": 4014,
+      "sha256": "6a65a3e7400c5ed040e6f881fea315b1ed1d95d8afac4f8b30c020914c4f468c"
     },
     {
       "path": "modules/h265/module.c",
@@ -2743,8 +2773,8 @@
     },
     {
       "path": "modules/prores/README.md",
-      "bytes": 5388,
-      "sha256": "c0f82aa633b62dfe1fc1af988b121c1783225e2ec1fdb0dff56d82c0c6fe89f7",
+      "bytes": 5969,
+      "sha256": "7b60b2e9cddde49581fbf63848ecbe32c535cc039f3b9182a9c03c796cd36d75",
       "origin": "authored-for-public-distribution",
       "snapshot_sha256": null,
       "transformed": false,
@@ -3547,14 +3577,24 @@
       "sha256": "30761d465aac318a9655783703c1d36eecbd3a495a5f7bfabf94bf9aaa8e7ba6"
     },
     {
+      "path": "src/platform/z63_c201/guard_bootstrap.S",
+      "origin": "authored-for-public-distribution",
+      "snapshot_sha256": null,
+      "transformed": false,
+      "license": "CC-BY-NC-SA-4.0",
+      "additional_permission": "EXCEPTIONS.md",
+      "bytes": 1215,
+      "sha256": "44f49cc9c23861b06721560236f011720edef2883c24f513fb751efd237ec03f"
+    },
+    {
       "path": "src/platform/z63_c201/guard_integrity.S",
       "origin": "authored-for-public-distribution",
       "snapshot_sha256": null,
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 1330,
-      "sha256": "2ce701c9744118f4910d743029b97b9e4045d0ff7679188d6a02389e9198d5ae"
+      "bytes": 1990,
+      "sha256": "888feb76ad1554db24adc883273c898347355ca162f726ca5146b388e2e05169"
     },
     {
       "path": "src/platform/z63_c201/lifecycle.c",
@@ -3613,8 +3653,8 @@
       "transformed": true,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 20068,
-      "sha256": "c19bb27fb804e23d2db7ea39a4729239e74f895eeaf2ed3f5198e0a1931eaa27",
+      "bytes": 21950,
+      "sha256": "b0d756148d285a326204ecca91d103eb8f5add2b760de01855648b3b8502cf23",
       "source_path": "src/platform/z9_c532/menu.c",
       "source_revision": "67774849c9dd97cc7127066190528e245ee25650"
     },
@@ -3815,8 +3855,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 4982,
-      "sha256": "c709318e896615e2e3759f6bf69cefd4c3e6f4da3c78bbe6c9fb24a90185a609"
+      "bytes": 5400,
+      "sha256": "620dd2387a261c2d6c911984fef8e7987b3c2f286174297e4c260114476a33d3"
     },
     {
       "path": "src/platform/z63_c201/startup.h",
@@ -3835,8 +3875,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 2448,
-      "sha256": "29588bfd12484f3f99a83393f345ace7606503e742ec2490dc4de911485a3347"
+      "bytes": 2832,
+      "sha256": "cbcd52e8095b1b680734899d81dcf5e62db8895b17cb27ee456cb2521fe72f12"
     },
     {
       "path": "src/platform/z63_c201/sysctl_trampoline.S",
@@ -3951,8 +3991,8 @@
     },
     {
       "path": "src/platform/z63_c201/video_quality.c",
-      "bytes": 27621,
-      "sha256": "d546aa6d7a5755cd9a677b082d18034a8c15eed937565eff81d9689a1b34bd77",
+      "bytes": 30287,
+      "sha256": "5c7e44a355e1aab803376cbff2bd7461c6c706969e9675a945a3667e7c315331",
       "origin": "authored-for-public-distribution",
       "snapshot_sha256": null,
       "transformed": false,
@@ -3961,8 +4001,8 @@
     },
     {
       "path": "src/platform/z63_c201/video_quality.h",
-      "bytes": 1433,
-      "sha256": "e440643dcad9e2cc5ba203758c90866206c3f8f68c6f49662c0a51a0ae295807",
+      "bytes": 1413,
+      "sha256": "0c15aef54f030867d5ff531b5d78027cb814c312f6feea73aaf2c314d95e8544",
       "origin": "authored-for-public-distribution",
       "snapshot_sha256": null,
       "transformed": false,
@@ -4981,8 +5021,8 @@
       "transformed": true,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 64781,
-      "sha256": "c32201c8369a03b9db3c71dd65e8145eedfcc090d600bf112827484a33cc51b2"
+      "bytes": 65417,
+      "sha256": "22ef1ec7e9eb6a90d4afa5f7c9cbcc3952645a2a5a3af9d7f0c1c7ef3ee4d8dd"
     },
     {
       "path": "tests/prores_module_fixture.c",
@@ -5261,8 +5301,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 3871,
-      "sha256": "78933629300f823354a7ef71065ef3848f5ad5b7ef244d1ad9f94a98fe0535ea"
+      "bytes": 8678,
+      "sha256": "9ee318511178f875b33719de774be40abbd0404f4fc5439219acd340cda647f2"
     },
     {
       "path": "tests/test_z63_log_profile.py",
@@ -5301,8 +5341,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 5557,
-      "sha256": "a347fad9c65fc77ffbff9916bd0f5ccf1f94aaa168532eae9d851ef989ac8bc7"
+      "bytes": 5559,
+      "sha256": "e9b2b7463e04e75c438fee9265d87a7675799c127a62a88bd38bb5fb30ebb03e"
     },
     {
       "path": "tests/video_color_fixture.c",

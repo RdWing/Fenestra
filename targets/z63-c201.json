@@ -1719,6 +1719,18 @@
     ],
     "dependencies": [
       {
+        "name": "late_task_query",
+        "address": 1075366092,
+        "bytes": 972,
+        "sha256": "44368599b65e66ee11a8c1be2617cb2cea979677240985a73b316c22f4411398"
+      },
+      {
+        "name": "late_event_worker",
+        "address": 1086325340,
+        "bytes": 52,
+        "sha256": "0a64916b4877a737fbac1f421102fc7b1fb446edbf00e620e5d3b45d9f5ced1f"
+      },
+      {
         "name": "h265_save_request",
         "address": 1090534336,
         "bytes": 32,
@@ -1876,5 +1888,14 @@
       "fx_z63_video_parse_accept": 1087288128,
       "fx_z63_video_parse_reject": 1087288352
     }
+  },
+  "late_initialization": {
+    "descriptor_slot": 42992741984,
+    "original_descriptor": 42992489872,
+    "state_min": 42949672960,
+    "state_max": 44023414712,
+    "state_magic": 1180328781,
+    "state_magic_offset": 64,
+    "bootstrap_event": 20
   }
 }

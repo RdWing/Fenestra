@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from host.z63_placement import guards, MARKER, INTEGRITY_CODE
-from unicorn import Uc, UC_ARCH_ARM64, UC_MODE_ARM
+from host.z63_placement import guards, MARKER, INTEGRITY_CODE, BOOTSTRAP_CODE
+from unicorn import Uc, UC_ARCH_ARM64, UC_MODE_ARM, UC_HOOK_CODE
 import unicorn.arm64_const as arm
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -22,7 +22,74 @@ class GuardIntegrityTests(unittest.TestCase):
             subprocess.run([clang,'--target=aarch64-none-elf','-c',str(ROOT/'src/platform/z63_c201/guard_integrity.S'),'-o',str(obj)],check=True)
             subprocess.run([linker,'-m','aarch64elf','-Ttext=0','--entry=fx_guard_integrity',str(obj),'-o',str(elf)],check=True)
             subprocess.run([objcopy,'-O','binary',str(elf),str(binary)],check=True)
-            self.assertEqual(binary.read_bytes(),INTEGRITY_CODE+bytes(32))
+            self.assertEqual(binary.read_bytes(),INTEGRITY_CODE+bytes(72))
+            subprocess.run([clang,'--target=aarch64-none-elf','-c',str(ROOT/'src/platform/z63_c201/guard_bootstrap.S'),'-o',str(obj)],check=True)
+            subprocess.run([linker,'-m','aarch64elf','-Ttext=0','--entry=fx_boot_guard',str(obj),'-o',str(elf)],check=True)
+            subprocess.run([objcopy,'-O','binary',str(elf),str(binary)],check=True)
+            self.assertEqual(binary.read_bytes(),BOOTSTRAP_CODE)
+
+    def test_stock_completion_precedes_optional_init_and_inactive_hooks_stay_stock(self):
+        base,begin,end,g0=0x40000000,0x40001000,0x40001400,0x40002000
+        site,normal,slot,state,message,stop=base+0x100,base+0x200,0x800080,0x801000,0x802000,0x80fff0
+        profile={'image_base':base,'probe_code_region':{'begin':begin,'end':end},
+                 'guard_region':{'begin':g0,'end':g0+0x1000},'sysctl':{'dispatcher':site},
+                 'late_initialization':{'descriptor_slot':slot,'original_descriptor':0x800900,
+                     'state_min':0x800000,'state_max':0x80ff00,'state_magic':0x465a634d}}
+        original=bytearray(0x4000)
+        stock=(0xa9bc67fe,0xa9015ff8,0xa90257f6,0xa9034ff4,0x52800540,0x528266e1,
+               0xa9434ff4,0xa94257f6,0xa9415ff8,0xa8c467fe,0xd65f03c0)
+        struct.pack_into('<11I',original,0x100,*stock)
+        struct.pack_into('<I',original,0x200,0xa9bf7bfd)
+        core=bytearray(1024);core[-8:]=MARKER
+        for offset in (0,64,128):struct.pack_into('<I',core,offset,0xd65f03c0)
+        blob,entries=guards(profile,original,{site:(begin,False),normal:(begin+64,False)},core,begin+128)
+        cpu=Uc(UC_ARCH_ARM64,UC_MODE_ARM);cpu.mem_map(base,0x4000);cpu.mem_write(base,bytes(original))
+        cpu.mem_write(g0,blob);cpu.mem_map(0x800000,0x10000)
+        trace=[]
+        def observed(uc,pc,size,data):
+            if pc==site+16:trace.append('stock')
+            elif pc==begin+128:
+                self.assertEqual(trace,['stock']);trace.append('optional')
+                uc.reg_write(arm.UC_ARM64_REG_X0,0xbad) # Must not replace stock return.
+            else:trace.append('normal-core')
+        for pc in (site+16,begin,begin+128):cpu.hook_add(UC_HOOK_CODE,observed,begin=pc,end=pc)
+        def run(pc,end_pc):
+            for i in range(31):cpu.reg_write(getattr(arm,'UC_ARM64_REG_X'+str(i)),0x803000+i*16)
+            cpu.reg_write(arm.UC_ARM64_REG_X0,message)
+            cpu.reg_write(arm.UC_ARM64_REG_X1,0)
+            cpu.reg_write(arm.UC_ARM64_REG_LR,stop)
+            cpu.reg_write(arm.UC_ARM64_REG_SP,0x808000)
+            cpu.reg_write(arm.UC_ARM64_REG_PSTATE,0xa00003c5)
+            cpu.emu_start(pc,end_pc,count=10000)
+            self.assertEqual(cpu.reg_read(arm.UC_ARM64_REG_PC),end_pc)
+            self.assertEqual(cpu.reg_read(arm.UC_ARM64_REG_PSTATE)&0x3c0,0x3c0)
+            return [cpu.reg_read(getattr(arm,'UC_ARM64_REG_X'+str(i))) for i in range(31)]+[
+                cpu.reg_read(arm.UC_ARM64_REG_SP),cpu.reg_read(arm.UC_ARM64_REG_NZCV)]
+        for event in (0,8,19,20,24,25):
+            for present in (False,True):
+                trace.clear();cpu.mem_write(begin,bytes(core) if present else bytes(1016)+MARKER)
+                cpu.ctl_remove_cache(begin,end)
+                cpu.mem_write(slot,struct.pack('<Q',0x800900));cpu.mem_write(message+32,struct.pack('<I',event))
+                expected=run(site,stop);trace.clear()
+                actual=run(entries[site],stop)
+                if not present or event!=20:self.assertEqual(actual,expected)
+                self.assertEqual(trace,['stock','optional'] if event==20 and present else ['stock'])
+                self.assertEqual(cpu.reg_read(arm.UC_ARM64_REG_X0),42)
+                self.assertEqual(cpu.reg_read(arm.UC_ARM64_REG_SP),0x808000)
+                self.assertEqual(struct.unpack('<Q',cpu.mem_read(slot,8))[0],0x800900)
+        cpu.mem_write(begin,bytes(core));cpu.ctl_remove_cache(begin,end)
+        for pointer,magic,allowed in ((0,0,False),(0x800900,0,False),(state+1,0,False),
+                (0x7ffff8,0,False),(0x810000,0,False),(state,0,False),(state,0x465a634d,True)):
+            cpu.mem_write(slot,struct.pack('<Q',pointer));cpu.mem_write(state+64,struct.pack('<I',magic))
+            run(entries[normal],begin+64 if allowed else normal+4)
+        # Negative control: the former argument reload corrupted stock x1.
+        cpu.mem_write(slot,struct.pack('<Q',0x800900));cpu.mem_write(message+32,struct.pack('<I',20))
+        cpu.mem_write(begin,bytes(1016)+MARKER);cpu.ctl_remove_cache(begin,end)
+        reload_at=entries[site]+0x2c
+        cpu.mem_write(reload_at,struct.pack('<I',0xa94007e0))
+        cpu.ctl_remove_cache(reload_at,reload_at+4)
+        expected=run(site,stop);trace.clear();former=run(entries[site],stop)
+        self.assertNotEqual(former[1],expected[1])
 
     def test_corruption_falls_back_without_changing_machine_state(self):
         base,begin,end,g0=0x40000000,0x40001000,0x40001400,0x40002000

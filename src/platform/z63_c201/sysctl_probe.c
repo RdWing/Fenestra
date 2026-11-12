@@ -30,6 +30,16 @@ __attribute__((unused)) static void probe_task(void) {
     fx_z63_probe_task_result(id,result);
 }
 extern uint64_t fx_z63_system_original(void *,uint32_t);
+/* The guard-area bootstrap invokes this only AFTER original event 20 returns.
+ * No optional core instruction is required to dispatch that stock event. */
+void fx_z63_system_after_start(void) {
+#ifdef FX_Z63_MENU
+    extern void fx_z63_menu_install(void);
+    fx_z63_menu_install();
+#elif !defined(FX_Z63_MODULE_PROBE)
+    probe_task();
+#endif
+}
 uint64_t fx_z63_system_dispatch(void *message,uint32_t sync) {
     uint32_t event=*(const uint32_t *)((const uint8_t *)message+32u);
     fx_z63_sysctl_before(event,sync);
@@ -41,7 +51,7 @@ uint64_t fx_z63_system_dispatch(void *message,uint32_t sync) {
     uint64_t result=fx_z63_system_original(message,sync);
     fx_z63_sysctl_after(event,sync);
 #ifdef FX_Z63_MENU
-    if(event==20u)fx_z63_menu_install();
+    /* Event 20 is handled by the guard bootstrap, never dispatched twice. */
     if(event==25u)fx_z63_menu_lifecycle(event);
 #elif defined(FX_Z63_MODULE_PROBE)
     extern void fx_z63_probe_module_start(void);

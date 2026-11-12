@@ -20,6 +20,13 @@ def verify_guards(original, candidate, receipt):
     cpu.mem_map(base, (len(candidate) + 4095) & ~4095)
     cpu.mem_write(base, candidate)
     cpu.mem_map(0x800000, 0x20000)
+    profile=json.loads((Path(__file__).resolve().parents[1]/'targets/z63-c201.json').read_text())
+    late=profile.get('late_initialization') if receipt.get('menu') else None
+    if late:
+        cpu.mem_map(late['descriptor_slot']&~4095,4096)
+        cpu.mem_map(0xa01000000,4096)
+        cpu.mem_write(late['descriptor_slot'],struct.pack('<Q',0xa01000000))
+        cpu.mem_write(0xa01000000+64,struct.pack('<I',late['state_magic']))
     marker = receipt['placement']['code_region'][1] - 8
     marker_bytes = candidate[marker-base:marker-base+8]
     regs = [getattr(arm, 'UC_ARM64_REG_X'+str(i)) for i in range(31)]

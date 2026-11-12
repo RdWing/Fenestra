@@ -98,3 +98,12 @@ Recording controls switch directly to Movie mode. The optional
 `--video-prepare legacy-half` repeats the earlier still-half-press sequence.
 Each run saves the prepared and requested movie screens. A native reset error
 does not qualify recording admission.
+
+The current core defers context construction until the original startup
+completion handler returns. Existing native workers are joined only after
+publication: their task identity and exact dispatcher-event wait are checked
+under the recording fence, or their callbacks acknowledge the new context.
+Unknown, active or mismatched states keep the choice pending or return BUSY;
+they do not trigger a persistence request merely to force readiness. This
+late join has local instruction/model controls, not physical-camera timing
+or complete asynchronous writer-lifetime qualification.
