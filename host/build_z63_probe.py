@@ -166,7 +166,7 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
         graph[name]=dependencies(dep,ROOT);compilations[name]=command;objects.append(str(obj))
     identity_inputs=[*sources,'host/build_z63_probe.py','host/build_z63_adapter.py','host/z63_bindings.py',
                      'host/compiler_dependencies.py','host/verify_z63_build.py','host/z63_package.py','host/z63_placement.py',
-                     'fenestra.py','targets/z63-c201.json','emulation/z63_probe.ld']
+                     'src/platform/z63_c201/guard_integrity.S','fenestra.py','targets/z63-c201.json','emulation/z63_probe.ld']
     if video:identity_inputs+=['host/z63_video.py','host/r3dne_profile.py','modules/r3dne/profile.json']
     header=(out/'z63_debug_identity.h').relative_to(ROOT).as_posix()
     configuration={}
@@ -210,11 +210,11 @@ def build(application, output, linker, llvm_bin, module=None, menu=False, discov
     candidate[marker-base:marker-base+len(MARKER)] = MARKER
     # No hook branches straight into the core. Each goes through a guard in
     # copied original text that falls back to original behaviour when the
-    # marker, and so the core, is not present.
+    # marker or whole-core CRC is invalid. Validation stays outside the core.
     calls = {row['address'] for row in profile['ui_calls']} if ui else set()
     if video:
         calls.update(row['address'] for row in profile['video_quality']['hooks'] if row.get('link'))
-    guard_code, guard_table = build_guards(profile, original, {a: (symbols[s], a in calls) for a, s in hooks.items()})
+    guard_code, guard_table = build_guards(profile, original, {a: (symbols[s], a in calls) for a, s in hooks.items()}, candidate[begin-base:end-base])
     guard_begin = profile['guard_region']['begin']
     candidate[guard_begin-base:guard_begin-base+len(guard_code)] = guard_code
     for address in hooks:

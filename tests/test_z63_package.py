@@ -23,14 +23,14 @@ class Z63PackageTests(unittest.TestCase):
 
     def setUp(self):
         # Offset 64: the hooked site, a position-independent instruction.
-        self.original = bytes(range(64)) + struct.pack('<I', 0xa9bf7bfd) + bytes(252 + 256)
+        self.original = bytes(range(64)) + struct.pack('<I', 0xa9bf7bfd) + bytes(4096 - 68)
         self.profile = dict(image_base=0x4000, application_sha256=hashlib.sha256(self.original).hexdigest(),
-            probe_code_region=dict(begin=0x4080, end=0x4100), guard_region=dict(begin=0x4100, end=0x4200),
+            probe_code_region=dict(begin=0x4080, end=0x4100), guard_region=dict(begin=0x4100, end=0x4800),
             sysctl=dict(dispatcher=0x4040), menu_hooks={})
         self.candidate = bytearray(self.original)
         self.candidate[128:132] = b'code'
         self.candidate[0xf8:0x100] = MARKER
-        guard, table = guards(self.profile, self.original, {0x4040: (0x4080, False)})
+        guard, table = guards(self.profile, self.original, {0x4040: (0x4080, False)}, self.candidate[0x80:0x100])
         self.candidate[0x100:0x100 + len(guard)] = guard
         struct.pack_into('<I', self.candidate, 64, 0x14000000 | ((table[0x4040] - 0x4040) // 4))
         self.receipt = dict(target='z63-c201', hooks={'0x4040':'fx_z63_system_dispatch'},
@@ -52,7 +52,7 @@ class Z63PackageTests(unittest.TestCase):
         self.receipt.update(video=True)
         self.receipt['hooks']['0x4044']='video_register'
         self.receipt['symbols']['video_register']=0x4084
-        guard, table = guards(self.profile, self.original, {0x4040: (0x4080, False), 0x4044: (0x4084, True)})
+        guard, table = guards(self.profile, self.original, {0x4040: (0x4080, False), 0x4044: (0x4084, True)}, self.candidate[0x80:0x100])
         self.candidate[0x100:0x100 + len(guard)] = guard
         struct.pack_into('<I', self.candidate, 68, 0x94000000 | ((table[0x4044] - 0x4044) // 4))
 

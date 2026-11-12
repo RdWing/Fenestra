@@ -7,6 +7,7 @@ never wrote. An all-zero region in the image is not evidence that it is free.
 """
 import hashlib
 import struct
+import binascii
 
 
 def constants(code):
@@ -88,6 +89,32 @@ def check(profile, original):
 MARKER = b'FXZ63COR'
 GUARD_WORDS = 8
 
+# guard_integrity.S linked at zero. All references are position independent.
+# The ARM regression assembles the source independently and checks these bytes.
+INTEGRITY_CODE = bytes.fromhex(
+    'e92bbca9eb3301a9ed3b02a909423bd5e91b00f969030010312940a9'
+    '4c815ff82d0d40f99f010debc10100542b1140b9100080126e030010'
+    '2c1640388c01104a8c1d0012cd596cb8b021504a3f020aeb43ffff54'
+    'f003302a10020b4a0200001430008052e91b40f909421bd5ed3b42a9'
+    'eb3341a9e92bc4a8c0035fd61f2003d5')
+
+
+def integrity_prefix(profile, core):
+    begin, end = (profile['probe_code_region'][key] for key in ('begin', 'end'))
+    if begin & 7 or end & 7 or not 8 <= end-begin <= 0x60000 or len(core) != end-begin:
+        raise ValueError('invalid bounded immutable core extent')
+    if core[-8:] != MARKER:
+        raise ValueError('immutable core marker missing')
+    table = []
+    for byte in range(256):
+        value = byte
+        for _ in range(8):
+            value = (value >> 1) ^ (0xedb88320 if value & 1 else 0)
+        table.append(value)
+    assert len(INTEGRITY_CODE) == 128
+    return (MARKER + INTEGRITY_CODE + struct.pack('<QQII8s', begin, end,
+            binascii.crc32(core), 0, MARKER) + struct.pack('<256I', *table))
+
 
 def position_independent(word):
     """True unless the instruction reads PC: it may then run at another address."""
@@ -107,34 +134,23 @@ def marker_address(profile):
     return profile['probe_code_region']['end'] - len(MARKER)
 
 
-def guards(profile, original, hooks):
-    """Build one guard per hook: {site: (stub address, core target, is call)} -> bytes.
+def guards(profile, original, hooks, core):
+    """Guard every core entry with bounded marker/whole-reservation CRC32.
 
-    Each guard enters the resident core only when the marker stored at the end
-    of the code region is present. Otherwise it behaves as the original site:
-    a function entry runs its displaced first instruction and continues, and a
-    call site or a declared tail branch reaches its original callee. Ordinary
-    entry and call guards use
-    the ABI scratch registers x16/x17. Video guards preserve both registers
-    and NZCV because a video hook can be inside an original function.
+    The validator and its expected checksum live in copied original text,
+    outside the optional core. CRC32 detects accidental corruption, not hostile
+    replacement/authenticity. All GPRs and NZCV survive each guard. No mutable
+    cache is used; validation timing remains a qualification gate.
     """
     base = profile['image_base']
     g0, g1 = (profile['guard_region'][name] for name in ('begin', 'end'))
-    marker = marker_address(profile)
-    if marker & 7:
-        raise ValueError('marker is not aligned')
-    out = bytearray(MARKER)
+    out = bytearray(integrity_prefix(profile, core))
     table = {}
     video_hooks = {row['address']: row for row in profile.get('video_quality', {}).get('hooks', [])}
     for site in sorted(hooks):
         target, call = hooks[site]
         stub = g0 + len(out)
         word = struct.unpack_from('<I', original, site - base)[0]
-        page = (marker >> 12) - (stub >> 12)
-        if not -(1 << 20) <= page < (1 << 20):
-            raise ValueError('marker out of ADRP range')
-        adrp = 0x90000010 | ((page & 3) << 29) | (((page >> 2) & 0x7ffff) << 5)
-        load = 0xf9400210 | (((marker & 0xfff) // 8) << 10)
         tail = video_hooks.get(site, {}).get('tail', False)
         if call or tail:
             if word >> 26 != (0x25 if call else 5) or (call and tail):
@@ -143,22 +159,14 @@ def guards(profile, original, hooks):
             callee = site + ((delta - (1 << 26) if delta & (1 << 25) else delta) * 4)
         elif not position_independent(word):
             raise ValueError('hook site instruction cannot be displaced')
-
-        if site in video_hooks:
-            # The video hooks include interior branches, where both scratch
-            # registers and condition flags can be live. EOR/CBNZ test the
-            # marker without changing NZCV. Both paths restore x16/x17 and SP.
-            literal = 0x58000011 | ((((g0 - (stub + 12)) // 4) & 0x7ffff) << 5)
-            words = [0xa9bf47f0, adrp, load, literal, 0xca110210, 0xb5000070,
-                     0xa8c147f0, _branch(stub + 28, target), 0xa8c147f0]
-            words += ([_branch(stub + 36, callee), 0xd4200000] if call or tail else
-                      [word, _branch(stub + 40, site + 4)])
-        else:
-            literal = 0x58000011 | ((((g0 - (stub + 8)) // 4) & 0x7ffff) << 5)
-            words = [adrp, load, literal, 0xeb11021f, 0x54000041, _branch(stub + 20, target)]
-            words += ([_branch(stub + 24, callee), 0xd4200000] if call else
-                      [word, _branch(stub + 28, site + 4)])
-        out += struct.pack('<%dI' % len(words), *words)
+        # Save scratch registers and the incoming link before BL validation.
+        # CBNZ does not disturb restored NZCV. Both exits restore the exact SP.
+        words = [0xa9be47f0, 0xf9000bfe, _branch(stub+8,g0+8,True),
+                 0x35000090, 0xf9400bfe, 0xa8c247f0, _branch(stub+24,target),
+                 0xf9400bfe, 0xa8c247f0]
+        words += ([_branch(stub+36,callee),0xd4200000] if call or tail else
+                  [word,_branch(stub+40,site+4)])
+        out += struct.pack('<11I', *words)
         table[site] = stub
     if g0 + len(out) > g1:
         raise ValueError('guard region exhausted')

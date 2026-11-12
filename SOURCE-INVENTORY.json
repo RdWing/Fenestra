@@ -598,8 +598,8 @@
       "transformed": true,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 18923,
-      "sha256": "7e839ab5ba480e312a5fcaa87859845adcfc985595c1250d6bc696839d4a5e3c"
+      "bytes": 19028,
+      "sha256": "e9dd1a4bf32f04b729228e202edd08ec8b5c29657dcb6ab166f9035eac5088e1"
     },
     {
       "path": "host/build_z9_core.py",
@@ -1168,8 +1168,8 @@
     },
     {
       "path": "host/verify_z63_video_hooks.py",
-      "bytes": 13428,
-      "sha256": "ea2f63312e80dfcfa2fbc8dfb6e391c9820f7e21ef59e8459a47e20e7b53009c",
+      "bytes": 13448,
+      "sha256": "dcdbc74cc7fd4281ccb15100eae0a2cbc368d18bc77f642e676655a8cc6b2d32",
       "origin": "authored-for-public-distribution",
       "snapshot_sha256": null,
       "transformed": false,
@@ -1213,8 +1213,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 6359,
-      "sha256": "c2b5a014e2769a4d89a5a70e96530d70b56cf08d706ce3837c8db49700711682"
+      "bytes": 6719,
+      "sha256": "0291a7d59d85a2f05e32aae9f47bc6800254c7aa6da7a397295471b2821060e0"
     },
     {
       "path": "host/z63_emulator_smoke.py",
@@ -1253,8 +1253,8 @@
       "transformed": true,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 10207,
-      "sha256": "e84d010b1c51b11951e34e7f7f6358c51b9f5a2cfdc4552b9ac65d8517fb715d"
+      "bytes": 10229,
+      "sha256": "add2dae2cbe4a042ba6d0eafe783daeb5fdda063aded1eaf434a4688596baacd"
     },
     {
       "path": "host/z63_placement.py",
@@ -1263,8 +1263,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 8373,
-      "sha256": "f261ff2f4d2d110b10310ab7af0dc38f3f67b8524823893035ccb276e19ac7c3"
+      "bytes": 8535,
+      "sha256": "b78a45b9f7cd8d89edf9f09c6f19582bfb7f5b33ac4936ccf577df21f1905493"
     },
     {
       "path": "host/z63_video.py",
@@ -3547,6 +3547,16 @@
       "sha256": "30761d465aac318a9655783703c1d36eecbd3a495a5f7bfabf94bf9aaa8e7ba6"
     },
     {
+      "path": "src/platform/z63_c201/guard_integrity.S",
+      "origin": "authored-for-public-distribution",
+      "snapshot_sha256": null,
+      "transformed": false,
+      "license": "CC-BY-NC-SA-4.0",
+      "additional_permission": "EXCEPTIONS.md",
+      "bytes": 1330,
+      "sha256": "2ce701c9744118f4910d743029b97b9e4045d0ff7679188d6a02389e9198d5ae"
+    },
+    {
       "path": "src/platform/z63_c201/lifecycle.c",
       "origin": "authored-for-public-distribution",
       "snapshot_sha256": null,
@@ -5245,6 +5255,16 @@
       "sha256": "e0ec8d552dffbc24c31df638673f3c2be225931b434fefd374a2208890e1b65c"
     },
     {
+      "path": "tests/test_z63_guard_integrity.py",
+      "origin": "authored-for-public-distribution",
+      "snapshot_sha256": null,
+      "transformed": false,
+      "license": "CC-BY-NC-SA-4.0",
+      "additional_permission": "EXCEPTIONS.md",
+      "bytes": 3871,
+      "sha256": "78933629300f823354a7ef71065ef3848f5ad5b7ef244d1ad9f94a98fe0535ea"
+    },
+    {
       "path": "tests/test_z63_log_profile.py",
       "origin": "authored-for-public-distribution",
       "snapshot_sha256": null,
@@ -5271,8 +5291,8 @@
       "transformed": true,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 5441,
-      "sha256": "5c4af97810fbe5d13a8675aacf48cd6a1198b24e0299fc6669ff81e74801dac4"
+      "bytes": 5497,
+      "sha256": "aa838862eb53370a53d5a8f7385b91d0ef26c1e42103e19fc9dbdc99dcd9426b"
     },
     {
       "path": "tests/test_z63_placement.py",
@@ -5281,8 +5301,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 5799,
-      "sha256": "fb13c95cf861622a7a1519c66946be078603d7ffe2edccdf30dfc5458e313067"
+      "bytes": 5557,
+      "sha256": "a347fad9c65fc77ffbff9916bd0f5ccf1f94aaa168532eae9d851ef989ac8bc7"
     },
     {
       "path": "tests/video_color_fixture.c",

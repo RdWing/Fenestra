@@ -31,7 +31,7 @@ def verify_guards(original, candidate, receipt):
     def execute(site, stop):
         for register, value in zip(state_regs, initial):
             cpu.reg_write(register, value)
-        cpu.emu_start(site, stop, count=32)
+        cpu.emu_start(site, stop, count=(marker-base+8)*8+1000)
         if cpu.reg_read(arm.UC_ARM64_REG_PC) != stop:
             raise ValueError('video guard did not reach the expected destination')
         return [cpu.reg_read(register) for register in state_regs]

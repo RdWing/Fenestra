@@ -5,6 +5,7 @@ cleared, as if the bytes had not reached the camera's memory. The guards must
 then leave original startup unchanged: no call may enter the code region and
 the scanout must match an original boot. Requires the same external nikon-z63
 QEMU, plugin and inputs as z63_emulator_smoke.py. Emulator evidence only.
+Use --keep-marker to test missing code with the valid marker retained.
 """
 import argparse
 import hashlib
@@ -80,6 +81,8 @@ def main():
     for name in ('qemu', 'original', 'application', 'receipt', 'loader', 'snor', 'nand', 'mcu', 'card', 'raw', 'plugin', 'output-dir'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--seconds', type=float, default=35)
+    parser.add_argument('--keep-marker', action='store_true',
+                        help='retain the valid marker while clearing the core; requires corruption rejection')
     args = parser.parse_args()
     profile, original = load_application(args.original)
     receipt = json.loads(args.receipt.read_text())
@@ -92,6 +95,8 @@ def main():
     if candidate[marker - base:end - base] != MARKER or not receipt.get('guards'):
         raise ValueError('candidate has no guarded hooks')
     candidate[begin - base:end - base] = bytes(end - begin)
+    if args.keep_marker:
+        candidate[marker-base:end-base] = MARKER
     out = args.output_dir.resolve()
     if out.exists():
         raise ValueError('new output directory required')
@@ -107,6 +112,7 @@ def main():
     core_calls = [line for line in calls if 'pc=' + hex(guard) not in line]
     match = scanout_fraction(out / 'original' / 'screen.ppm', out / 'absent' / 'screen.ppm')
     result = dict(schema='fenestra.z63-core-absent/v1', candidate_sha256=receipt['candidate_sha256'],
+        marker_retained=args.keep_marker,
         absent_sha256=hashlib.sha256(candidate).hexdigest(), seconds=args.seconds,
         original_status=stock_status, absent_status=status, guard_entries=len(guard_calls),
         core_entries=len(core_calls), scanout_match=match,

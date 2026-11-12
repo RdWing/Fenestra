@@ -28,11 +28,11 @@ class Z63PlacementTests(unittest.TestCase):
         routine = struct.pack('<%dI' % len(words), *words)
         image = bytearray(0x20000)
         image[0x100:0x100 + len(routine)] = routine
-        image[0x2000:0x2400] = b'\x55' * 0x400
+        image[0x2000:0x2200] = b'\x55' * 0x200
         self.image = bytes(image)
         self.profile = dict(image_base=self.base,
             probe_code_region=dict(begin=0x40001000, end=0x40002000),
-            guard_region=dict(begin=0x40002400, end=0x40002800),
+            guard_region=dict(begin=0x40002200, end=0x40002800),
             text_relocation=dict(
                 routines=[dict(address=self.base + 0x100, bytes=len(routine),
                                sha256=hashlib.sha256(routine).hexdigest())],
@@ -91,25 +91,21 @@ class Z63PlacementTests(unittest.TestCase):
         entry, call = 0x40000400, 0x40000500
         struct.pack_into('<I', image, 0x400, 0xa9bf7bfd)           # stp x29,x30,[sp,#-16]!
         struct.pack_into('<I', image, 0x500, 0x94000000 | 0x40)    # bl +0x100
-        code, table = guards(self.profile, bytes(image), {entry: (0x40001010, False), call: (0x40001020, True)})
+        code, table = guards(self.profile, bytes(image), {entry: (0x40001010, False), call: (0x40001020, True)}, bytes(4088)+MARKER)
         self.assertEqual(code[:8], MARKER)
-        self.assertEqual(table, {entry: 0x40002408, call: 0x40002428})
-        first = struct.unpack_from('<8I', code, 8)
-        second = struct.unpack_from('<8I', code, 40)
-        self.assertEqual(first[3:5], (0xeb11021f, 0x54000041))
-        # Present: both guards enter the core. Absent: entry replays its
-        # instruction and continues; the call reaches the original callee.
-        self.assertEqual(first[5], 0x14000000 | (((0x40001010 - (table[entry] + 20)) // 4) & 0x3ffffff))
-        self.assertEqual(first[6], 0xa9bf7bfd)
-        self.assertEqual(first[7], 0x14000000 | (((entry + 4 - (table[entry] + 28)) // 4) & 0x3ffffff))
-        self.assertEqual(second[6], 0x14000000 | (((call + 0x100 - (table[call] + 24)) // 4) & 0x3ffffff))
+        first = struct.unpack_from('<11I', code, table[entry]-0x40002200)
+        second = struct.unpack_from('<11I', code, table[call]-0x40002200)
+        self.assertEqual(table[call]-table[entry], 44)
+        self.assertEqual(first[9], 0xa9bf7bfd)  # displaced stock entry
+        self.assertEqual(first[10], 0x14000000 | (((entry+4-(table[entry]+40))//4)&0x3ffffff))
+        self.assertEqual(second[9], 0x14000000 | (((call+0x100-(table[call]+36))//4)&0x3ffffff))
 
     def test_guard_rejects_pc_relative_entry(self):
         image = bytearray(self.image)
         struct.pack_into('<I', image, 0x400, 0x90000010)           # adrp x16
         self.assertFalse(position_independent(0x90000010))
         with self.assertRaisesRegex(ValueError, 'cannot be displaced'):
-            guards(self.profile, bytes(image), {0x40000400: (0x40001010, False)})
+            guards(self.profile, bytes(image), {0x40000400: (0x40001010, False)}, bytes(4088)+MARKER)
 
     def test_rejects_occupied_region(self):
         image = bytearray(self.image); image[0x1800] = 1
