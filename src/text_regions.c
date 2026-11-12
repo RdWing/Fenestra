@@ -84,8 +84,10 @@ FxResult fx_text_regions_add(FxTextRegions *index,FxTextRegion *r,const void *ba
 FxResult fx_native_text_regions_add(FxTextRegions *index,FxTextRegion *r,const void *base,uintptr_t bytes){
 #if defined(__aarch64__) && defined(FX_FREESTANDING)
     uint64_t saved;__asm__ volatile("mrs %0,daif; msr daifset,#3":"=r"(saved)::"memory");
-    FxResult result;
-    do{result=fx_text_regions_add(index,r,base,bytes);}while(result==FX_BUSY);
+    /* Another core can own the writer. Never wait with IRQ/FIQ masked:
+     * stock NOR programming must be able to park this core. Callers retain
+     * or discard their unpublished allocation when BUSY is returned. */
+    FxResult result=fx_text_regions_add(index,r,base,bytes);
     __asm__ volatile("msr daif,%0"::"r"(saved):"memory");return result;
 #else
     return fx_text_regions_add(index,r,base,bytes);

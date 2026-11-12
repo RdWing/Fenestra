@@ -23,8 +23,9 @@ typedef struct {
 } FxTextRegions;
 FxResult fx_text_regions_add(FxTextRegions *,FxTextRegion *,const void *,uintptr_t bytes);
 /* Published RTOS indices use this EL1 facade: save/restore local IRQ/FIQ
- * around the bounded metadata-only writer. It cannot wait behind a task
- * preempted on the same CPU. No kernel/provider/allocation call under it.
+ * around one metadata-only writer attempt. Contention returns BUSY after
+ * restoring the mask; no retry or wait with interrupts masked. No
+ * kernel/provider/allocation call under it.
  * Hosted builds keep the nonblocking primitive for explicit test fixtures. */
 FxResult fx_native_text_regions_add(FxTextRegions *,FxTextRegion *,const void *,uintptr_t bytes);
 /* Optional visits counts tree nodes, not original font work or CPU cycles. */

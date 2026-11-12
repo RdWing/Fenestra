@@ -2518,8 +2518,8 @@
     },
     {
       "path": "include/fenestra_text_regions.h",
-      "bytes": 1419,
-      "sha256": "3ae0db410f362b4b6111ad76717cb42f28e6e9ab7feb87a1d39808ecd807c8d5",
+      "bytes": 1457,
+      "sha256": "86bc047dfe3463fff3e9af3fcae4c7c3ef3725e1ef3d016aa7d07332901ee79e",
       "origin": "project-source",
       "snapshot_sha256": "3ae0db410f362b4b6111ad76717cb42f28e6e9ab7feb87a1d39808ecd807c8d5",
       "transformed": false,
@@ -4861,8 +4861,8 @@
     },
     {
       "path": "src/text_regions.c",
-      "bytes": 5423,
-      "sha256": "17e78e6f0a44fa2c2d413508b6f23f43ae9171ac0f38edcfbd5d9ea037550bbe",
+      "bytes": 5605,
+      "sha256": "9f416fb4251e384cd18b69b408a0fa8c7843ebfaeb86b61f3ce8017459ce7e24",
       "origin": "project-source",
       "snapshot_sha256": "17e78e6f0a44fa2c2d413508b6f23f43ae9171ac0f38edcfbd5d9ea037550bbe",
       "transformed": false,
@@ -5193,6 +5193,16 @@
       "additional_permission": "EXCEPTIONS.md",
       "bytes": 3667,
       "sha256": "c8341542263cccb5ee3b7ba4b33869f2f7f5610f5b5964be3fade26675abb1d5"
+    },
+    {
+      "path": "tests/test_text_regions_arm.py",
+      "origin": "authored-for-public-distribution",
+      "snapshot_sha256": null,
+      "transformed": false,
+      "license": "CC-BY-NC-SA-4.0",
+      "additional_permission": "EXCEPTIONS.md",
+      "bytes": 3206,
+      "sha256": "3bb73fd8034695687e776afb0541a25ccf57bd85113b7c51d6b3085f0ac6aedf"
     },
     {
       "path": "tests/test_video_quality.py",
