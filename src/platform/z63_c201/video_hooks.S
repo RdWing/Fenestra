@@ -144,5 +144,6 @@ fx_z63_video_parser_hook:
 .global fx_z63_h265_select_tail
 fx_z63_h265_select_tail:
  mov x3,x8
+ mov x4,x30
  b fx_z63_h265_copy
 .include "z63_video_original.inc"

@@ -24,6 +24,13 @@ def generate(profile, original, output):
         n=len(rows[0]);return f'_Alignas(8) static const unsigned char {name}[{len(rows)}][{n}]={{\n'+\
             ',\n'.join('{'+','.join(map(str,row))+'}' for row in rows)+'\n};\n'
     header='/* Generated from the complete locally supplied original C2.01 EG. */\n'
+    for name in ('record_copy','record_clear'):
+        row=next(r for r in p['hooks'] if r['name']==name)
+        word=struct.unpack('<I',block(row['address'],4))[0]
+        if word>>26!=0x25:raise ValueError('recording binding is not an original BL')
+        delta=word&0x3ffffff
+        if delta&(1<<25):delta-=1<<26
+        header+='#define FX_Z63_'+name.upper()+'_FN UINT64_C(0x%x)\n'%(row['address']+delta*4)
     header+=bytes_array('fx_z63_video_rates',rows)
     header+=bytes_array('fx_z63_raw_templates',[block(0x42b7153a,86)[:4]+b'NR3D'+block(0x42b7153a,86)[8:],block(0x42b71590,86)[:4]+b'NR3D'+block(0x42b71590,86)[8:]])
     _,matrix=load_raw_profile()

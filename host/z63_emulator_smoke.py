@@ -130,6 +130,13 @@ def main():
     parser.add_argument('--seconds', type=float, default=35)
     parser.add_argument('--no-image-preload',action='store_true',help='let original MAIN copy its DRAM code windows')
     parser.add_argument('--nor-audit-plugin',type=Path,help='observe every CPU NOR transaction with the local read-only audit plugin')
+    parser.add_argument('--nor-profile',choices=('activation','video-settings'),default='activation',help='explicit permitted NOR regions; video profile validates pinned original registry rows')
+    parser.add_argument('--video-observer',type=Path,help='read-only recording-lifetime instruction observer')
+    parser.add_argument('--compact-navigation',action='store_true',help='record page identities without repeatedly walking every rendered widget; explicit menu structure checks still run')
+    parser.add_argument('--h265-failure',choices=('cancel','no-space','remove','write-error'),help='native early Stop, low-capacity card or active modeled card-detect loss control')
+    parser.add_argument('--require-h265-playback',action='store_true',help='require actual decoded pictures and owned movie resize output in a compatible model')
+    parser.add_argument('--h265-depth',type=int,choices=(8,10),default=10,help='native H.265 recording file type')
+    parser.add_argument('--h265-record-seconds',type=float,default=8,help='bounded native recording dwell (1 to 60 seconds)')
     parser.add_argument('--activation-refusal',choices=('missing','invalid','updating'),help='test missing/invalid enable input or a supplied updater-session refusal')
     parser.add_argument('--card-reinsert-test',action='store_true',help='after refusal, remove/reinsert the modeled card and verify that no feature activates')
     parser.add_argument('--initial-card-absent',action='store_true',help='boot with card detection off, then insert the supplied virtual card before manual activation')
@@ -174,6 +181,13 @@ def main():
     parser.add_argument('--video-record-choice',type=int,choices=range(5),help='video test: select one quality and observe native recording admission up to the expected strict codec-model stop')
     parser.add_argument('--expect', choices=('success', 'fault', 'rejected', 'sdk', 'services', 'runtime', 'lifecycle', 'ui', 'timeout', 'files', 'mapping', 'global'), default='success')
     args = parser.parse_args()
+    if (args.h265_failure or args.require_h265_playback) and args.h265_record_tier is None:
+        parser.error('H.265 recording failure/playback controls require --h265-record-tier')
+    if args.h265_failure and args.require_h265_playback:
+        parser.error('choose a recording failure control or completed playback, not both')
+    if args.h265_failure=='remove' and (args.startup_test or args.shutdown_test or args.deactivate_test):
+        parser.error('recording card loss owns its retirement/reinsertion checks')
+    if not 1<=args.h265_record_seconds<=60:parser.error('recording dwell must be 1..60 seconds')
     if args.activation_refusal and (not args.native_menu_test or args.startup_test!='manual' or args.nor_audit_plugin):
         parser.error('--activation-refusal requires native-menu/manual-startup and a separate NOR-audit run')
     if args.card_reinsert_test and not args.activation_refusal:parser.error('--card-reinsert-test requires an activation refusal control')
@@ -290,7 +304,7 @@ def main():
         command = [str(args.qemu.resolve(strict=True)), '-machine', machine, '-cpu', 'cortex-a53',
             '-smp', '4,maxcpus=5', '-bios', str(application), '-serial', 'file:' + str(out / 'serial.log'),
             '-monitor', 'none', '-display', 'none', '-nic', 'none', '-action', 'shutdown=pause',
-            '-drive', 'file=' + str(out / 'card.img') + ',if=none,id=card,format=raw',
+            '-drive', 'file=' + str(out / 'card.img') + ',if=none,id=card,format=raw' + (',node-name=fx-h265-card' if args.h265_failure=='write-error' else ''),
             '-device', 'nvme,drive=card,serial='+args.nvme_serial+',bus=dw-pcie,addr=0',
             '-qmp', 'unix:' + str(sock) + ',server=on,wait=off',
             '-plugin', str(args.plugin.resolve(strict=True)) + ',out=' + str(out / 'calls.log') +
@@ -300,6 +314,14 @@ def main():
                 *(['0x403204d0','0x40c15bfc','0x403222e0','0x40322308','0x40321d7c','0x40323028','0x40322498','0x40322900','0x40320724','0x40320820'] if args.ptp_client else [])])]
         if args.nor_audit_plugin:
             command+=['-plugin',str(args.nor_audit_plugin.resolve(strict=True))+',out='+str(out/'nor-events.txt')]
+        if args.video_observer:
+            observer=str(args.video_observer.resolve(strict=True))+',out='+str(out/'video-lifetime.jsonl')
+            if 'fx_z63_recording_layout' in symbols:
+                binary=application.read_bytes()
+                video_offset=struct.unpack_from('<I',binary,symbols['fx_z63_video_layout']-0x40160000+8)[0]
+                recording_offset=struct.unpack_from('<I',binary,symbols['fx_z63_recording_layout']-0x40160000+8)[0]
+                observer+=',record-offset='+str(video_offset+recording_offset)
+            command+=['-plugin',observer]
         if args.activation_refusal=='updating':
             command+=['-gdb','unix:'+str(Path(temp)/'gdb')+',server=on,wait=off']
         (out/'command.json').write_text(json.dumps(command,indent=2)+'\n')
@@ -385,7 +407,7 @@ def main():
                     time.sleep(5);activation_snapshot('inserted-before-activation','stock')
                     qmp('screendump',{'filename':str(out/'before-menu.ppm')})
 
-                def view():
+                def view(detailed=True):
                     vector = read64(0xa03420de8)
                     snapshot = {'vector': hex(vector)}
                     def save_view():
@@ -418,7 +440,7 @@ def main():
                     identity = read64(page) & 0xffffffff
                     snapshot['identity'] = hex(identity)
                     if identity & 65535 == 2:
-                        if args.ui_test:
+                        if args.ui_test and detailed and not args.compact_navigation:
                             chrome=read64(page+24);descriptor=read64(page+80)
                             header=read64(descriptor+8)
                             title_id=(read64(header+0x78)>>32)&0xffffffff
@@ -556,7 +578,7 @@ def main():
                     else:raise RuntimeError('RAW frame-size row absent')
                     keypress('right')
                     for _ in range(128):
-                        view();leaf=int(json.loads((out/'native-views.jsonl').read_text().splitlines()[-1])['chain'][-1],16)
+                        view(detailed=False);leaf=int(json.loads((out/'native-views.jsonl').read_text().splitlines()[-1])['chain'][-1],16)
                         desc=read64(leaf+80);count=read64(desc+32)&65535;items=read64(desc+16)
                         index=((read64(leaf+48)>>16)&65535)+(read64(leaf+88)&65535)
                         if not 1<=count<=128 or index>=count:raise RuntimeError('RAW mode list bounds')
@@ -578,7 +600,7 @@ def main():
                         else:raise RuntimeError('RAW microphone row absent')
                         keypress('right')
                         for _ in range(16):
-                            view();leaf=int(json.loads((out/'native-views.jsonl').read_text().splitlines()[-1])['chain'][-1],16)
+                            view(detailed=False);leaf=int(json.loads((out/'native-views.jsonl').read_text().splitlines()[-1])['chain'][-1],16)
                             desc=read64(leaf+80);items=read64(desc+16);count=read64(desc+32)&65535
                             index=((read64(leaf+48)>>16)&65535)+(read64(leaf+88)&65535)
                             if not 1<=count<=16 or index>=count:raise RuntimeError('RAW microphone options bounds')
@@ -1152,16 +1174,23 @@ def main():
                                 ('capture',0xa048bb044),('pipeline',0xa03d42100),('class',0xa03d42108))}
                             state['native_idle']=(not any(state[name] for name in ('movie','outstanding','capture')) and
                                 ((state['pipeline']==2 and state['class']!=12) or (state['pipeline']==0 and state['class']==0)))
+                            if 'fx_z63_recording_layout' in symbols:
+                                layout=struct.unpack_from('<10I',image,symbols['fx_z63_recording_layout']-0x40160000)
+                                record=read64(0xa02912e60)+meta[2]+layout[2]
+                                values=struct.unpack('<Q6I',read_bytes(record,32))
+                                state['recording']=dict(zip(('configuration','generation','cleared_generation','fault','copies','duplicates','retired'),values))
+                            state['policy']=video_state()
                             recording['activity'].append(dict(label=label,**state));save_recording()
                             return state
                         def seek_current(target):
                             for _ in range(48):
-                                view();leaf=int(json.loads((out/'native-views.jsonl').read_text().splitlines()[-1])['chain'][-1],16)
+                                view(detailed=False);leaf=int(json.loads((out/'native-views.jsonl').read_text().splitlines()[-1])['chain'][-1],16)
                                 descriptor=read64(leaf+80);count=read64(descriptor+32)&65535
                                 row_data=read64(descriptor+16)
                                 index=((read64(leaf+48)>>16)&65535)+(read64(leaf+88)&65535)
                                 if not 1<=count<=48 or index>=count:raise RuntimeError('recording menu selection bounds')
-                                ids=[u32(row_data+i*44+24) for i in range(count)]
+                                rows=read_bytes(row_data,count*44)
+                                ids=[struct.unpack_from('<I',rows,i*44+24)[0] for i in range(count)]
                                 targets=target if isinstance(target,tuple) else (target,)
                                 admitted=[ids.index(item) for item in targets if item in ids]
                                 if not admitted:raise RuntimeError('recording menu target absent: '+repr(target))
@@ -1191,12 +1220,13 @@ def main():
                         if view()>>16!=278:raise RuntimeError('H.265 recording file type page absent')
                         current_type=u32(0xa03f0eee0)
                         if not 1<=current_type<=6:raise RuntimeError('Recording control file type is unknown')
-                        delta=current_type-3  # Original options descend from N-RAW (6) to AVC (1).
+                        requested_type=2 if args.h265_depth==8 else 3
+                        delta=current_type-requested_type  # Original options descend from N-RAW (6) to AVC (1).
                         for _ in range(abs(delta)):keypress('down' if delta>0 else 'up')
                         keypress('ok')
                         if view()>>16==278:keypress('ok')
-                        recording['file_type']=dict(before=current_type,requested=3,effective=u32(0xa03f0eee0))
-                        if view()>>16!=266 or recording['file_type']['effective']!=3:raise RuntimeError('Native H.265 10-bit selection differs')
+                        recording['file_type']=dict(before=current_type,requested=requested_type,effective=u32(0xa03f0eee0))
+                        if view()>>16!=266 or recording['file_type']['effective']!=requested_type:raise RuntimeError('Native H.265 file type selection differs')
                         seek_current(0x2ee6);keypress('right');seek_current(0x2eea);keypress('ok')
                         if u32(0xa03f0ef80)!=0:raise RuntimeError('Native Microphone off was not saved')
                         recording['microphone_off']=True
@@ -1205,66 +1235,181 @@ def main():
                         recording['live_view_before_record']=frames;save_recording()
                         if frames[1]<frames[0]+10:raise RuntimeError('Model live view frozen before REC')
                         qmp('screendump',{'filename':str(out/'h265-before-record.ppm')})
-                        keypress('movie');time.sleep(8)
-                        started=activity('started')
-                        if not any(started[name] for name in ('movie','outstanding','capture')):raise RuntimeError('No native recording work after REC')
-                        parameters=read_bytes(0xa02fce490,48)
-                        words=list(struct.unpack('<12I',parameters))
-                        recording['encoder_parameters']=words;save_recording()
-                        expected_rate=(187500,112500,84375,56250,37500)[args.h265_record_tier]
-                        if words[:6]!=[1,3840,2160,1001,30000,1000] or words[6]!=expected_rate or words[7]!=10 or words[11]!=10:
-                            raise RuntimeError('Recording encoder geometry, timing, depth or nominal tier differs')
-                        qmp('screendump',{'filename':str(out/'h265-recording.ppm')})
-                        keypress('movie');time.sleep(5)
-                        deadline=time.monotonic()+60
-                        while not activity('stop-drain')['native_idle']:
-                            if not qmp('query-status').get('running'):raise RuntimeError('Emulator stopped during recording drain')
-                            if time.monotonic()>=deadline:raise RuntimeError('Native movie Stop did not retire')
-                            time.sleep(3)
-                        recording['recording_stopped_and_drained']=True
-                        recording['codec_after_record']=model('wave5-vpu-state');save_recording()
-                        keypress('lever=photo');time.sleep(8)
-                        if args.h265_after_stop_tier is not None:
-                            keypress('half');keypress('menu')
-                            for attempt in range(3):
-                                if view()>>16==266:break
+                        if not 1<=args.h265_record_seconds<=60:raise ValueError('recording dwell bounds')
+                        if args.h265_failure:
+                            before=activity('failure-before-record')
+                            keypress('movie');time.sleep(1 if args.h265_failure=='cancel' else 3)
+                            admitted=activity('failure-after-record')
+                            if args.h265_failure in ('remove','write-error'):
+                                deadline=time.monotonic()+30
+                                while not (admitted.get('recording',{}).get('configuration') and admitted['capture']):
+                                    if time.monotonic()>=deadline or not qmp('query-status').get('running'):
+                                        raise RuntimeError('Failure injection did not reach an owned native capture')
+                                    time.sleep(1);admitted=activity('failure-wait-capture')
+                            if args.h265_failure=='remove':
+                                if not admitted.get('recording',{}).get('configuration'):raise RuntimeError('Removal missed recording ownership')
+                                qmp('qom-set',{'path':'/machine','property':'cfexpress-card','value':False})
+                            elif args.h265_failure=='write-error':
+                                if not admitted.get('recording',{}).get('configuration'):raise RuntimeError('Write failure missed recording ownership')
+                                # Insert a one-shot external block error below the
+                                # existing raw card while the native request is
+                                # owned. No guest memory, success or filesystem
+                                # completion is substituted.
+                                qmp('stop')
+                                nodes=qmp('query-named-block-nodes')
+                                files=[node for node in nodes if node.get('drv')=='file' and node.get('image',{}).get('filename')==str(out/'card.img')]
+                                raw=[node for node in nodes if node.get('drv')=='raw' and node.get('image',{}).get('filename')==str(out/'card.img')]
+                                if len(files)!=1 or len(raw)!=1:raise RuntimeError('unique raw/file card graph required')
+                                recording['block_stats_before_error']=qmp('query-blockstats')
+                                qmp('trace-event-set-state',{'name':'pci_nvme_err_aio','enable':True})
+                                qmp('blockdev-add',{'driver':'blkdebug','node-name':'fx-h265-error','image':files[0]['node-name'],
+                                    'inject-error':[{'event':'none','iotype':'write','errno':5,'once':True,'immediately':False}]})
+                                qmp('blockdev-reopen',{'options':[{'driver':'raw','node-name':raw[0]['node-name'],'file':'fx-h265-error'}]})
+                                recording['write_error_model']=dict(errno=5,once=True,when='native recording owned, before Stop',raw_node=raw[0]['node-name'],file_node=files[0]['node-name'])
+                                qmp('cont');keypress('movie')
+                            elif args.h265_failure=='cancel':keypress('movie')
+                            else:
+                                if not admitted['native_idle'] or admitted.get('recording',{}).get('configuration'):
+                                    raise RuntimeError('Low-capacity fixture admitted recording work')
+                            deadline=time.monotonic()+45
+                            while True:
+                                after=activity('failure-drain')
+                                if after['native_idle'] and not after.get('recording',{}).get('configuration'):break
+                                if not qmp('query-status').get('running'):raise RuntimeError('Model stopped during failure cleanup')
+                                if time.monotonic()>=deadline:break
                                 time.sleep(2)
-                                if view()>>16==266:break
-                                keypress('menu')
-                            else:raise RuntimeError('Post-stop Video menu not reached')
-                            seek_current(0x7f51);keypress('right')
-                            if view()>>16!=0x7061:raise RuntimeError('Post-stop H.265 selector absent')
-                            leaf=int(json.loads((out/'native-views.jsonl').read_text().splitlines()[-1])['chain'][-1],16)
-                            cursor=(read64(leaf+48)>>16)&65535
-                            chosen=args.h265_after_stop_tier
-                            for _ in range(abs(chosen-cursor)):keypress('down' if chosen>cursor else 'up')
-                            keypress('ok');time.sleep(2)
-                            if view()>>16!=266 or video_state()['effective']!=chosen:raise RuntimeError('Post-stop tier did not publish')
-                            recording['post_stop_selection']=video_state();save_recording()
+                            from z63_activation import CONTROL_RAM
+                            interlock=u32(CONTROL_RAM)
+                            if interlock!=1:raise RuntimeError('Failure cleared update exclusion')
+                            clean=after['native_idle'] and not after.get('recording',{}).get('configuration') and not after['policy']['fault']
+                            retained=bool(after.get('recording',{}).get('configuration'))
+                            if not clean and not retained:raise RuntimeError('Failure neither retired nor retained recording ownership')
+                            if args.h265_failure not in ('remove','write-error') and not clean:raise RuntimeError('Native failure did not retire')
+                            recording['failure_control']=dict(kind=args.h265_failure,before=before,admitted=admitted,after=after,
+                                cleanup_verified=clean,ownership_retained=retained,update_interlock=interlock,
+                                card_detect_only=args.h265_failure=='remove',physical_media_interruption_tested=False)
+                            if args.h265_failure=='remove':
+                                # Recording retirement and module retirement
+                                # are separate. A worker timeout must not be
+                                # hidden by native work eventually reaching idle.
+                                root=read64(0xa02912e60)
+                                boot_layout=struct.unpack_from('<7I',image,symbols['fx_z63_startup_layout']-0x40160000)
+                                runtime_offset=struct.unpack_from('<I',image,symbols['fx_z63_menu_runtime_offset']-0x40160000)[0]
+                                runtime_layout=struct.unpack_from('<5I',image,symbols['fx_z63_runtime_layout']-0x40160000)
+                                worker_layout=struct.unpack_from('<3I',image,symbols['fx_z63_worker_layout']-0x40160000)
+                                runtime=read64(root+runtime_offset);workers=read64(runtime+runtime_layout[3]);worker=read64(workers)
+                                if not all(0xa00000000<=v<0xa40000000-4096 for v in (root,runtime,workers,worker)):
+                                    raise RuntimeError('removed-card worker observation bounds')
+                                deadline=time.monotonic()+12
+                                while u32(worker+worker_layout[2]) not in (4,5) and time.monotonic()<deadline:time.sleep(.2)
+                                phase=u32(worker+worker_layout[2])
+                                recording['failure_control']['worker_phase']=phase
+                                recording['failure_control']['startup']=dict(zip(('phase','desired','error','shutdown_done'),
+                                    [u32(root+boot_layout[2]+at) for at in boot_layout[3:]]))
+                                save_recording()
+                                if phase!=4:raise RuntimeError('Card-loss worker failed to quiesce after native recording drain: '+str(phase))
+                                activation_layout=struct.unpack_from('<7I',image,symbols['fx_z63_activation_layout']-0x40160000)
+                                gate=u32(root+activation_layout[3])
+                                if gate not in (0,2,3):raise RuntimeError('Card loss left feature admission open')
+                                activation_snapshot('recording-card-removed')
+                                qmp('qom-set',{'path':'/machine','property':'cfexpress-card','value':True})
+                                time.sleep(5)
+                                after_gate=u32(root+activation_layout[3]);after_worker=u32(worker+worker_layout[2])
+                                if after_gate not in (0,2,3) or after_worker!=4 or u32(CONTROL_RAM)!=1:
+                                    raise RuntimeError('Card reinsertion reopened the retired session')
+                                activation_snapshot('recording-card-reinserted')
+                                recording['failure_control']['reinsertion']=dict(feature_gate_before=gate,feature_gate_after=after_gate,
+                                    worker_phase=after_worker,update_interlock=1,automatic_reactivation=False)
+                            qmp('screendump',{'filename':str(out/'h265-failure.ppm')})
+                            recording['codec_after_failure']=model('wave5-vpu-state')
+                            if args.h265_failure=='write-error':
+                                recording['block_stats_after_error']=qmp('query-blockstats')
+                                errors=[line for line in (out/'qemu.log').read_text().splitlines() if 'pci_nvme_err_aio' in line]
+                                if len(errors)!=1 or 'Input/output error' not in errors[0]:raise RuntimeError('one external NVMe write error was not observed')
+                                recording['failure_control']['native_nvme_errors']=errors
+                            save_recording()
+                        else:
+                            keypress('movie');time.sleep(args.h265_record_seconds)
+                            started=activity('started')
+                            if not any(started[name] for name in ('movie','outstanding','capture')):raise RuntimeError('No native recording work after REC')
+                            parameters=read_bytes(0xa02fce490,48)
+                            words=list(struct.unpack('<12I',parameters))
+                            recording['encoder_parameters']=words;save_recording()
+                            baseline_rate=150000 if args.h265_depth==8 else 187500
+                            expected_rate=baseline_rate*(100,60,45,30,20)[args.h265_record_tier]//100
+                            if words[:6]!=[1,3840,2160,1001,30000,1000] or words[6]!=expected_rate or words[7]!=args.h265_depth or words[11]!=args.h265_depth:
+                                raise RuntimeError('Recording encoder geometry, timing, depth or nominal tier differs')
+                            qmp('screendump',{'filename':str(out/'h265-recording.ppm')})
+                            keypress('movie');time.sleep(5)
+                            deadline=time.monotonic()+60
+                            while not activity('stop-drain')['native_idle']:
+                                if not qmp('query-status').get('running'):raise RuntimeError('Emulator stopped during recording drain')
+                                if time.monotonic()>=deadline:raise RuntimeError('Native movie Stop did not retire')
+                                time.sleep(3)
+                            recording['recording_stopped_and_drained']=True
+                            recording['codec_after_record']=model('wave5-vpu-state');save_recording()
+                            keypress('lever=photo');time.sleep(8)
+                            if args.h265_after_stop_tier is not None:
+                                keypress('half');keypress('menu')
+                                for attempt in range(3):
+                                    if view()>>16==266:break
+                                    time.sleep(2)
+                                    if view()>>16==266:break
+                                    keypress('menu')
+                                else:raise RuntimeError('Post-stop Video menu not reached')
+                                # MENU can restore the Video tab with the sidebar
+                                # focused. Its child still describes Video rows;
+                                # UP would select another tab instead of a row.
+                                chain=json.loads((out/'native-views.jsonl').read_text().splitlines()[-1]).get('chain',[])
+                                if len(chain)>1:
+                                    keypress('right')
+                                    if view()>>16!=266:raise RuntimeError('Post-stop Video content focus differs')
+                                seek_current(0x7f51);keypress('right')
+                                if view()>>16!=0x7061:raise RuntimeError('Post-stop H.265 selector absent')
+                                leaf=int(json.loads((out/'native-views.jsonl').read_text().splitlines()[-1])['chain'][-1],16)
+                                cursor=(read64(leaf+48)>>16)&65535
+                                chosen=args.h265_after_stop_tier
+                                for _ in range(abs(chosen-cursor)):keypress('down' if chosen>cursor else 'up')
+                                keypress('ok');time.sleep(2)
+                                if view()>>16!=266 or video_state()['effective']!=chosen:raise RuntimeError('Post-stop tier did not publish')
+                                recording['post_stop_selection']=video_state();save_recording()
+                                keypress('half')
+                            keypress('play');time.sleep(5)
+                            qmp('screendump',{'filename':str(out/'h265-playback-entry.ppm')})
+                            playback_calls=re.findall(r'call pc=0x407ebf20 x0=(0x[0-9a-f]+) x1=(0x[0-9a-f]+)',(out/'calls.log').read_text())
+                            if not playback_calls:raise RuntimeError('Native playback codec-class call not observed')
+                            source,obj=(int(value,16) for value in playback_calls[-1])
+                            if not all(0xa00000000<=value<0xa40000000 for value in (source,obj)):raise RuntimeError('Playback context bounds')
+                            flags=u32(obj+0x54)
+                            qmp('memsave',{'val':0xa03439ca0,'size':0x1d74,'filename':str(out/'playback-ui-record.bin')})
+                            qmp('memsave',{'val':0xa04a7a044,'size':0x3cc,'filename':str(out/'playback-selection.bin')})
+                            recording['playback']=dict(codec_class=(flags>>20)&7,quality_star=bool(flags&(1<<9)),
+                                source=hex(source),object=hex(obj),selected_word=u32(source),status=qmp('query-status'))
+                            recording['playback']['entry_verified']=True
+                            recording['playback']['moving_playback_qualified']=False
+                            recording['file_decode_audited']=False
+                            expected_star=args.h265_record_tier==0
+                            if (flags>>20)&7!=3 or bool(flags&(1<<9))!=expected_star:raise RuntimeError('Native H.265 playback quality differs')
+                            recording['codec_before_play']=model('wave5-vpu-state')
+                            recording['resize_before_play']=model('playback-resize-state');save_recording()
+                            if qmp('query-status').get('running'):
+                                keypress('ok');time.sleep(8)
+                            recording['codec_after_play']=model('wave5-vpu-state')
+                            recording['resize_after_play']=model('playback-resize-state')
+                            recording['playback']['after_play_status']=qmp('query-status')
+                            qmp('screendump',{'filename':str(out/'h265-playback-after-play.ppm')})
+                            save_recording()
+                            if args.require_h265_playback:
+                                decoded=recording['codec_after_play'].get('decoded_pictures',0)-recording['codec_before_play'].get('decoded_pictures',0)
+                                resized=recording['resize_after_play'].get('movie_jobs',0)-recording['resize_before_play'].get('movie_jobs',0)
+                                if decoded<3 or resized<3 or not recording['playback']['after_play_status'].get('running'):
+                                    raise RuntimeError('Native playback did not decode and resize three movie frames: '+repr((decoded,resized)))
+                                recording['playback']['decoded_frames']=decoded
+                                recording['playback']['resized_frames']=resized
+                                recording['playback']['moving_playback_qualified']=True
+                                recording['playback']['scope']='Short native playback under host decoder and owned nearest-resize models; physical filters, timing and audio unqualified.'
+                                save_recording()
                             keypress('half')
-                        keypress('play');time.sleep(5)
-                        qmp('screendump',{'filename':str(out/'h265-playback-entry.ppm')})
-                        playback_calls=re.findall(r'call pc=0x407ebf20 x0=(0x[0-9a-f]+) x1=(0x[0-9a-f]+)',(out/'calls.log').read_text())
-                        if not playback_calls:raise RuntimeError('Native playback codec-class call not observed')
-                        source,obj=(int(value,16) for value in playback_calls[-1])
-                        if not all(0xa00000000<=value<0xa40000000 for value in (source,obj)):raise RuntimeError('Playback context bounds')
-                        flags=u32(obj+0x54)
-                        qmp('memsave',{'val':0xa03439ca0,'size':0x1d74,'filename':str(out/'playback-ui-record.bin')})
-                        qmp('memsave',{'val':0xa04a7a044,'size':0x3cc,'filename':str(out/'playback-selection.bin')})
-                        recording['playback']=dict(codec_class=(flags>>20)&7,quality_star=bool(flags&(1<<9)),
-                            source=hex(source),object=hex(obj),selected_word=u32(source),status=qmp('query-status'))
-                        recording['playback']['entry_verified']=True
-                        recording['playback']['moving_playback_qualified']=False
-                        recording['file_decode_audited']=False
-                        expected_star=args.h265_record_tier==0
-                        if (flags>>20)&7!=3 or bool(flags&(1<<9))!=expected_star:raise RuntimeError('Native H.265 playback quality differs')
-                        recording['codec_before_play']=model('wave5-vpu-state');save_recording()
-                        if qmp('query-status').get('running'):
-                            keypress('ok');time.sleep(8)
-                        recording['codec_after_play']=model('wave5-vpu-state')
-                        recording['playback']['after_play_status']=qmp('query-status')
-                        qmp('screendump',{'filename':str(out/'h265-playback-after-play.ppm')})
-                        save_recording()
                         video_result['recording']=recording
                         (out/'video-quality.json').write_text(json.dumps(video_result,indent=2)+'\n')
                     if args.video_record_choice is not None:
@@ -1556,8 +1701,18 @@ def main():
                             cleanup_confirmed=removed['phase']==7 and removed['shutdown_done']==1 and not removed['error'])
                     if args.deactivate_test:
                         keypress('menu')
-                        if view()&65535!=2:keypress('menu')
-                        keypress('left');keypress('left')
+                        deadline=time.monotonic()+12
+                        while view(detailed=False)&65535!=2 and time.monotonic()<deadline:time.sleep(.2)
+                        if view(detailed=False)&65535!=2:raise RuntimeError('deactivation menu construction did not finish')
+                        # Native MENU construction is asynchronous. Focus the
+                        # sidebar only after a page exists; otherwise LEFT can
+                        # be lost and later UP inputs move rows, not tabs.
+                        for _ in range(4):
+                            view(detailed=False)
+                            chain=json.loads((out/'native-views.jsonl').read_text().splitlines()[-1]).get('chain',[])
+                            if chain and int(chain[0],16)==0xa02902bb0:break
+                            keypress('left')
+                        else:raise RuntimeError('deactivation sidebar focus failed')
                         for _ in range(8):
                             if view()>>16==690:break
                             keypress('up')
@@ -1566,10 +1721,21 @@ def main():
                         if view()>>16!=0x7000:raise RuntimeError('deactivation Fenestra route failed')
                         focus_fenestra_action(0x7ff6)
                         keypress('ok')
-                        startup_result['deactivated']=boot_wait(lambda s:s['phase']==7 and s['shutdown_done']==1 and not s['error'])
+                        def deactivation_settled(state):
+                            if state['shutdown_done']!=1:return False
+                            if state['phase']==7 and not state['error']:return True
+                            # The injected native card error can leave the
+                            # filesystem unavailable for journal read/remove.
+                            # Require its specific retained-guard disposition,
+                            # never relabel an I/O failure as clean shutdown.
+                            return args.h265_failure=='write-error' and state['phase']==5 and state['error']==8
+                        startup_result['deactivated']=boot_wait(deactivation_settled)
+                        clean=not startup_result['deactivated']['error']
+                        startup_result['deactivation_clean']=clean
+                        startup_result['startup_guard_retained']=not clean
                         activation_snapshot('deactivated','retired')
                         from z63_activation import CONTROL_RAM
-                        if read64(CONTROL_RAM)>>32!=2:raise RuntimeError('manual deactivation retained automatic wake eligibility')
+                        if read64(CONTROL_RAM)>>32!=(2 if clean else 3):raise RuntimeError('manual deactivation wake policy differs')
                         startup_result['manual_deactivation_tested']=True
                         if view()>>16!=690:raise RuntimeError('deactivation did not hand presentation back to stock Setup')
                         deadline=time.monotonic()+5
@@ -1621,7 +1787,7 @@ def main():
                     process.wait(timeout=10)
     if args.nor_audit_plugin:
         from check_z63_nor_audit import audit
-        nor=audit(out/'nor-events.txt')
+        nor=audit(out/'nor-events.txt',profile=args.nor_profile,application=application)
         if args.video_menu_test and args.shutdown_test and not nor['programs']:
             raise RuntimeError('NOR observer saw no programming in the settings-save control')
         nor['loader_and_main_byte_identical']=True

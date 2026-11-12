@@ -2,6 +2,7 @@
 #define FX_Z63_VIDEO_QUALITY_H
 #include "fenestra_video_quality.h"
 #include "fenestra_platform.h"
+#include "fenestra_video_recording.h"
 #include "video_menu.h"
 typedef struct {
     FxVideoQualityPolicy policy,raw;
@@ -14,10 +15,12 @@ typedef struct {
     _Atomic uint32_t settings_busy,save_generation,save_sequence,save_result;
     FxPlatformOwner *prores_owner,*h265_owner;
     _Atomic uint32_t late_join;
+    FxVideoRecording recording;
 
 } FxZ63VideoQuality;
 void fx_z63_video_init(FxZ63VideoQuality *);
 int fx_z63_video_quiescent(FxZ63VideoQuality *);
+int fx_z63_video_native_pending(void);
 FxZ63VideoQuality *fx_z63_menu_video(void);
 FxResult fx_z63_video_resource(void *,uint32_t,const FxNamedBinding *,FxPlatformOwner *,uint64_t,
     uint64_t *,const FxServiceRequest *,FxServiceReply *);

@@ -8,7 +8,7 @@
 #include "../modules/prores/module.c"
 #endif
 FxExtensionDomain *fx_native_extensions(FxPlatformOwner *p){(void)p;return 0;}
-static uint32_t conflict,busy_replies,status_calls;
+static uint32_t conflict,busy_replies,status_calls,attach_calls;
 static FxVideoQualityPolicy policy;
 static FxPlatformOwner owner;
 static FxServiceOwner service_owner;
@@ -17,7 +17,7 @@ static uint32_t idle=1u,commits,busy_once,menu_attached,no_menu,wrong_mode,persi
 static FxResult resource(void *context,uint32_t op,const FxNamedBinding *descriptor,FxPlatformOwner *caller,
     uint64_t token,uint64_t *cookie,const FxServiceRequest *q,FxServiceReply *a) {
     (void)context;(void)descriptor;(void)caller;
-    if(op==FX_RESOURCE_ATTACH){*cookie=token;return FX_OK;}
+    if(op==FX_RESOURCE_ATTACH){++attach_calls;*cookie=token;return FX_OK;}
     assert(*cookie==token);
     if(op==FX_RESOURCE_DETACH || op==FX_RESOURCE_PANIC){menu_attached=0u;return fx_video_quality_release(&policy,token,idle);}
     assert(op==FX_RESOURCE_CALL && q && a);
@@ -62,15 +62,19 @@ static void steps(uint32_t count) {
 #include "video_module_retry_cases.h"
 int main(int argc,char **argv) {
     (void)argv;FxNamedBinding descriptor={.name=FX_CHOICE_PROVIDER,.kind=FX_BIND_DEVICE,.abi=FX_CALL_DEVICE,
-        .version=1u,.flags=FX_BIND_PROVIDER,.capabilities=FX_SDK_NATIVE,.address=1u};
+        .version=FX_CHOICE_VERSION,.flags=FX_BIND_PROVIDER,.capabilities=FX_SDK_NATIVE,.address=1u};
     if(argc==2 && !strcmp(argv[1],"old-core"))descriptor.name="unavailable";
+    if(argc==2 && !strcmp(argv[1],"wrong-provider-version"))descriptor.version=FX_CHOICE_VERSION+1u;
+#ifdef FX_H265_APP
+    if(argc==2 && !strcmp(argv[1],"legacy-provider"))descriptor.version=1u;
+#endif
     no_menu=argc==2 && !strcmp(argv[1],"no-menu");
     persistent_service=argc==2 && !strcmp(argv[1],"persistent");
     FxPlatform platform={.abi=1u,.count=1u,.bindings=&descriptor,.io={.resource=resource}};
     assert(fx_platform_init(&owner,&platform,1u,1u,FX_SDK_CAPS)==FX_OK);
     fx_service_init(&service_owner,1u,1u,FX_SDK_CAPS,(FxServiceBackend){&owner,service,stop});
     fx_video_quality_init(&policy);policy.registered=3u;steps(160u);
-    if(argc==2 && !strcmp(argv[1],"old-core")){assert(!(row(2u).flags&FX_UI_ENABLED) && !strcmp(row(4u).label,"Requires updated core"));return 0;}
+    if(argc==2 && (!strcmp(argv[1],"old-core") || !strcmp(argv[1],"wrong-provider-version") || !strcmp(argv[1],"legacy-provider"))){assert(!attach_calls && !(row(2u).flags&FX_UI_ENABLED) && !strcmp(row(4u).label,"Requires updated core"));return 0;}
     assert(!strcmp(row(4u).text,persistent_service?"Saved in camera":"Session only"));
     assert(menu_attached==(no_menu?0u:1u) && row(2u).option_count==5u && (row(2u).flags&FX_UI_ENABLED));
     assert(!strcmp(row(3u).text,names[0]));

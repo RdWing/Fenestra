@@ -1,17 +1,37 @@
 """Account for every observed C2.01 model NOR operation, without sampling.
 
-Only the two established settings banks are permitted by this settings-save
-profile. Firmware updates need a different explicit profile. Observed CPU
+The default profile permits the two observed activation-save slices. The
+explicit video profile checks original registry rows before admitting the full
+settings banks and native backend 33. Firmware updates need a different profile. Observed CPU
 transactions and modeled completion do not establish physical flash behavior.
 """
 import hashlib
 import json
+import struct
 from pathlib import Path
 
 BANKS=((0x45e20000,0x45e40000),(0x46220000,0x46240000))
 
 
-def audit(path):
+def regions(profile,application=None):
+    if profile=='activation':return BANKS,[]
+    if profile!='video-settings' or application is None:raise ValueError('video profile requires the pinned C2.01 registry')
+    image=Path(application).read_bytes()
+    if len(image) not in (88830365,88830367):raise ValueError('C2.01 application extent differs')
+    bounds=[];sources=[]
+    for index,offset,digest in (
+        (16,0x51bbf80,'9111a330bfe6c744d32f1df0300ffb05bb8c7e5466858b784b6a0fc1c257e1cd'),
+        (33,0x51bc228,'d7241210ce71b67a8db78c5e738a12bd6cf857deb92e468be528766529382038')):
+        row=image[offset:offset+40]
+        if hashlib.sha256(row).hexdigest()!=digest:raise ValueError('C2.01 storage registry row differs')
+        primary,alternate,capacity=struct.unpack_from('<QQI',row)
+        bounds.extend((base,base+capacity) for base in (primary,alternate))
+        sources.append(dict(backend=index,offset=hex(offset),bytes=40,sha256=digest))
+    return tuple(bounds),sources
+
+
+def audit(path,*,profile='activation',application=None):
+    banks,sources=regions(profile,application)
     lines=Path(path).read_text().splitlines()
     if not lines or not lines[0].startswith('FXNOR1 '):raise ValueError('missing trace header')
     if not lines[-1].startswith('END '):raise ValueError('incomplete NOR trace')
@@ -48,8 +68,8 @@ def audit(path):
                     raise ValueError('invalid page program setup')
                 pending=dict(kind='program',address=0x40000000+at,bytes=n,received=0,
                              started=seq,pc=hex(pc),cpu=cpu)
-            if pending and not any(lo<=pending['address'] and pending['address']+pending['bytes']<=hi for lo,hi in BANKS):
-                raise ValueError('NOR operation outside the permitted settings banks')
+            if pending and not any(lo<=pending['address'] and pending['address']+pending['bytes']<=hi for lo,hi in banks):
+                raise ValueError('NOR operation outside the permitted profile: '+hex(pending['address']))
         elif pending:
             done=False
             if offset==0xa0 and last_command==0x70930401 and value&0x30:raise ValueError('NOR error status')
@@ -65,14 +85,17 @@ def audit(path):
     return dict(passed=True,trace_sha256=hashlib.sha256(Path(path).read_bytes()).hexdigest(),
                 cpu_events=expected,nor_stores=stores,operations=operations,
                 erases=sum(r['kind']=='erase' for r in operations),programs=sum(r['kind']=='program' for r in operations),
-                permitted_regions=[[hex(a),hex(b)] for a,b in BANKS],
+                profile=profile,registry_sources=sources,
+                permitted_regions=[[hex(a),hex(b)] for a,b in banks],
                 scope=__doc__,physical_camera_tested=False)
 
 
 if __name__=='__main__':
     import argparse
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('trace',type=Path);p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--profile',choices=('activation','video-settings'),default='activation')
+    p.add_argument('--application',type=Path)
     a=p.parse_args()
     if a.output.exists():raise ValueError('new output required')
-    r=audit(a.trace);a.output.write_text(json.dumps(r,indent=2)+'\n')
+    r=audit(a.trace,profile=a.profile,application=a.application);a.output.write_text(json.dumps(r,indent=2)+'\n')
     print(json.dumps({k:v for k,v in r.items() if k!='operations'},indent=2))

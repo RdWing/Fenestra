@@ -1741,6 +1741,22 @@
         "sha256": "c9610a1aafec60dce1705e00e78f9ea31e15f06026640903bb33ca9abfec4d08",
         "symbol": "fx_z63_h265_select_tail",
         "tail": true
+      },
+      {
+        "name": "record_copy",
+        "address": 1081434188,
+        "bytes": 4,
+        "sha256": "15f89ea1cbb19599415380290deca6cf1c56f7d603ad9bac0e802840b3c0616a",
+        "symbol": "fx_z63_h265_record_copy",
+        "link": true
+      },
+      {
+        "name": "record_clear",
+        "address": 1081442648,
+        "bytes": 4,
+        "sha256": "b321523f8fcc9ee01f45e6d7586400f094748b1e139820e3c1f7eb58a16f55da",
+        "symbol": "fx_z63_h265_record_clear",
+        "link": true
       }
     ],
     "dependencies": [
@@ -1863,6 +1879,30 @@
         "address": 1118569212,
         "bytes": 2196,
         "sha256": "1a9dc170c4ece2b1456e504c9574320b83409b6c5ec819cf9f94c5ed0cd63be5"
+      },
+      {
+        "name": "record_copy_sequence",
+        "address": 1081434136,
+        "bytes": 88,
+        "sha256": "683c33762910d685d0e5d69f5a783622eecaf50c4bd8300e3274e069669bce90"
+      },
+      {
+        "name": "record_clear_sequence",
+        "address": 1081442492,
+        "bytes": 364,
+        "sha256": "491b4c18642e1f5241442373e788b1007fd2b009df97618576cc6d975c9fea26"
+      },
+      {
+        "name": "record_metadata_writer",
+        "address": 1081110584,
+        "bytes": 124,
+        "sha256": "4bf8cf7bd0c67385c1bc4528f81f8be4fa275c4563cdea1bd9be8ee42f211041"
+      },
+      {
+        "name": "record_metadata_setter",
+        "address": 1081449472,
+        "bytes": 88,
+        "sha256": "dae43db49c60e72ca34ee50a9eb2cf05782bb2c935990b955d0ef114cd1423c0"
       }
     ],
     "original_entries": [

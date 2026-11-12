@@ -8,6 +8,9 @@
 #include "services.h"
 #include "fenestra_worker_wait.h"
 #include "fenestra_worker_pace.h"
+#ifdef FX_Z63_VIDEO
+#include "video_quality.h"
+#endif
 #ifdef FX_NATIVE_SCENE
 #include "fenestra_native_scene.h"
 #else
@@ -106,6 +109,12 @@ static void run(void *context) {
             atomic_store_explicit(&w->phase,FX_Z63_WORKER_STOPPING,memory_order_release);
             uint64_t now=clock_ms();
             if(now==UINT64_MAX || now>UINT64_MAX-2000u){panic(w,FX_CAPABILITY);continue;}
+#ifdef FX_Z63_VIDEO
+            /* Preserve retained native consumers while they finish. The
+             * ordinary two-second cleanup deadline starts after that work
+             * drains; EL0 execution keeps its separate per-call budget. */
+            if(fx_z63_video_native_pending())w->stop_deadline=now+2000u;
+#endif
             if(!w->stop_deadline)w->stop_deadline=now+2000u;
             if(now>=w->stop_deadline){panic(w,FX_TIMEOUT);continue;}
             r=fx_service_stop(&w->service);

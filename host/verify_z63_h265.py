@@ -179,6 +179,7 @@ def verify(application, build):
     for file_type in (0, 1, 4, 5, 6, 7):
         assert resource(3, 1) == 2 and effective() == 0
     file_type = 3
+    put(0xa03f0eee0,file_type)
     put(0xa03d42100, 1)
     assert resource(3, 1) == 5 and effective() == 0
     put(0xa03d42100, 2)
@@ -237,6 +238,16 @@ def verify(application, build):
             assert bytes(cpu.mem_read(0xa03f0eef4, 4)) == persisted
             admission_cases += 1
         cpu.mem_write(address, previous)
+    recording_layout=struct.unpack_from('<10I',image,symbols['fx_z63_recording_layout']-BASE)
+    recording=state+recording_layout[2]
+    # Supplied pending-record lease with every native work word still idle.
+    cpu.mem_write(recording,struct.pack('<Q',(1<<32)|(3<<8)|(4<<1)|1))
+    for choice in range(5):
+        persisted=bytes(cpu.mem_read(0xa03f0eef4,4))
+        assert resource(3,choice)==5 and effective()==4
+        assert bytes(cpu.mem_read(0xa03f0eef4,4))==persisted
+        admission_cases+=1
+    cpu.mem_write(recording,bytes(8))
     for save_behavior in ('failed', 'suppressed'):
         prior = bytes(cpu.mem_read(0xa03f0eef4, 4))
         assert resource(3, 2) == 2 and effective() == 4
@@ -261,15 +272,18 @@ def verify(application, build):
         put(tier_state+layout[4], tier)
         source = bytearray(256);struct.pack_into('<I', source, 0x20, kind);source[0xec] = alternate
         destination = bytearray(b'\xa5'*256);struct.pack_into('<I', destination, 0xa8, quality)
-        cpu.mem_write(mode, bytes(source));cpu.mem_write(out, bytes(destination))
+        source_request=0xa048bb3b8
+        cpu.mem_write(source_request,bytes(source));cpu.mem_write(out,bytes(destination))
+        cpu.mem_write(recording,struct.pack('<Q',(1<<32)|(kind<<8)|(tier<<1)|1))
         expected = bytearray(destination)
         if metadata_result == 1 and kind in (2, 3) and not alternate and quality == 1 and tier:
             struct.pack_into('<I', expected, 0xa8, 2)
         before_calls = metadata_calls
-        assert call(symbols['fx_z63_h265_metadata'], mode, out) == metadata_result
+        assert call(symbols['fx_z63_h265_metadata'], source_request, out) == metadata_result
         assert metadata_calls == before_calls+1
-        assert bytes(cpu.mem_read(mode, 256)) == source and bytes(cpu.mem_read(out, 256)) == expected
+        assert bytes(cpu.mem_read(source_request,256))==source and bytes(cpu.mem_read(out,256))==expected
         metadata_cases += 1
+    cpu.mem_write(recording,bytes(8))
     put(tier_state+layout[4], 4)
     video_layout = struct.unpack_from('<9I', image, symbols['fx_z63_video_layout']-BASE)
     prores_state = state+video_layout[3]

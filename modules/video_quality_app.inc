@@ -1,4 +1,7 @@
 /* Shared managed frontend for five-choice video services. */
+#ifndef FX_CHOICE_VERSION
+#define FX_CHOICE_VERSION 1u
+#endif
 enum {LIFE,OPEN,INFO,PAGE,CHOICE,STATUS_ROW,NOTE,MENU,EVENTS,SELECT,STATUS};
 static FxSdkClient client;
 static uint32_t phase,choice,polls,unavailable,menu_supported,status_dirty,persistent;
@@ -91,7 +94,7 @@ int fenestra_module_entry(const FxModuleServices *base) {
     FxResult result;
     switch(phase) {
     case LIFE:result=fx_sdk_lifecycle(&client,api,FX_LIFE_CONFIGURE,FX_MODULE_EXTENSION);break;
-    case OPEN:result=fx_sdk_open(&client,api,FX_CHOICE_PROVIDER,1u);break;
+    case OPEN:result=fx_sdk_open(&client,api,FX_CHOICE_PROVIDER,FX_CHOICE_VERSION);break;
     case INFO:result=fx_sdk_platform(&client,api,FX_BIND_CALL,binding,FX_VIDEO_QUALITY_QUERY,0u,0,0u);break;
     case PAGE:result=control(api,1u);break;
     case CHOICE:result=control(api,2u);break;

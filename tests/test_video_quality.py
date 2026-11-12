@@ -24,6 +24,8 @@ class VideoQualityTests(unittest.TestCase):
                     'src/services.c','src/module.c','src/sha256.c','src/memory.c','src/extensions.c','src/stream.c']],'-o',str(binary)],check=True)
             subprocess.run([str(binary)],check=True)
             subprocess.run([str(binary),'old-core'],check=True)
+            subprocess.run([str(binary),'wrong-provider-version'],check=True)
+            if flags:subprocess.run([str(binary),'legacy-provider'],check=True)
             subprocess.run([str(binary),'no-menu'],check=True)
             subprocess.run([str(binary),'persistent'],check=True)
             for case in ('retry-cancel','retry-cancel-release','retry-latest','retry-release'):

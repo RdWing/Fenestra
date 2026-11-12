@@ -2,7 +2,7 @@
 
 This managed Z6III C2.01 app offers 100%, 60%, 45%, 30%, and 20% in the
 Fenestra Applications menu and a Video bitrate (H.265) selector in the native
-Video recording menu. It opens `camera.video.h265/v1` on a matching
+Video recording menu. It opens `camera.video.h265/v2` on a matching
 experimental video core. Build the module with the Z63 SDK and an ID of
 `h265`:
 
@@ -40,9 +40,11 @@ an acknowledged shutdown exports the modeled settings for a fresh-process
 restart control; use `--h265-initial-tier` to assert the restored choice.
 
 `--h265-record-tier` requires `--video-menu-test` and an explicitly supplied
-`--video-properties` fixture. The recording control uses native H.265 10-bit
-and Microphone off selections, checks fresh live view before REC, waits eight
-seconds, requests Stop and requires native retirement before playback. Audit
+`--video-properties` fixture. The recording control uses native H.265
+10-bit by default (`--h265-depth 8` selects 8-bit) and Microphone off. It checks
+fresh live view before REC, waits eight seconds by default, requests Stop and
+requires native retirement before playback. `--h265-record-seconds` bounds the
+dwell to 1–60 seconds; elapsed time is not proof of encoded duration. Audit
 the stopped card and complete movie decode separately. A compatible emulator
 may require the explicit `--dma-copy-zero-model` diagnostic to admit mode-zero
 row copies during drain; the runner records that model choice. The functional codec
@@ -50,9 +52,18 @@ and pixels are substitutes; short silent clips cannot qualify sustained rate,
 GOP behavior, sound or physical-camera operation. Other native quality icons
 remain separate from recorded playback metadata.
 
-The recorded-class hook reads the published effective tier. The idle gate
-refuses selection during the checked recording and drain states; a complete
-per-recording snapshot and all late-writer lifetimes remain unqualified.
+The core captures an immutable type/tier/generation when the original native
+recording request is copied. Encoder setup and the late recorded-class writer
+read that snapshot. A repeated preparation preserves the first choice. Release
+requires the observed original buffer clear, native idle and no tracked
+callbacks; missing or conflicting ownership keeps the session retained.
+`host/check_z63_recording.py` exercises original copy/clear/metadata instructions
+with explicit mutex/state fixtures, including late preference changes and
+failure cases. Full-system acceptance is separate from these linked tests.
+
+Provider version 2 is required before attachment so the module cannot restore
+a tier on an older core without the recording contract. The request structure
+ABI remains 1 and the package format remains WLM v4.
 
 The current core defers context construction until the original startup
 completion handler returns. Existing native workers are joined only after
@@ -62,3 +73,23 @@ Unknown, active or mismatched states keep the choice pending or return BUSY;
 they do not trigger a persistence request merely to force readiness. This
 late join has local instruction/model controls, not physical-camera timing
 or complete asynchronous writer-lifetime qualification.
+
+The local recording controls also cover early Stop, native capacity refusal,
+active card-detect loss/reinsertion and a one-shot NVMe write error through
+`--h265-failure`. Recording cleanup, module quiescence and journal cleanup are
+reported separately. A storage error can prevent the original filesystem from
+reading/removing the startup journal even after native work retires. In that
+case the core restores owned RAM hooks, retains the journal/update exclusion
+and refuses automatic wake activation; it does not report a clean session.
+The module cleanup deadline waits for healthy tracked native recording work,
+while its separate EL0 execution budget and fault handling remain enforced.
+
+`--require-h265-playback` requires actual decoder and movie-resize counters
+from a compatible emulator. The checked functional backend supports the 8-bit
+output path; 10-bit moving playback remains unqualified. Completed file decode
+is a separate check. Explicit `--nor-profile video-settings` validates original
+storage-registry rows before admitting the full native settings/backend-33
+ranges. Every observed CPU erase/program and completion is checked, and the
+runner compares the complete loader and MAIN before and after the sequence.
+This does not emulate physical flash-busy instruction fetches or per-write
+hardware readback.
