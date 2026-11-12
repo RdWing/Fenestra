@@ -22,6 +22,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('source', type=Path)
     p.add_argument('--id', required=True)
+    p.add_argument('--bundle',action='store_true',help='wrap a service frontend in a zero-component WLM v4 bundle')
     p.add_argument('--native',action='store_true',help='build a v4 native resident extension')
     p.add_argument('--include-dir',type=Path,action='append',default=[])
     p.add_argument('--library',type=Path,action='append',default=[])
@@ -63,6 +64,7 @@ def main(argv=None):
                     '-Wconversion', '-Wshadow', '-ffreestanding', '-fno-builtin', *([] if args.simd else ['-mgeneral-regs-only']),
                     '-mstrict-align', '-fno-stack-protector', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables',
                     '-fpie','-ffunction-sections','-fdata-sections','-DFX_FREESTANDING=1','-I', str(ROOT / 'include')]
+    if args.bundle and args.native:p.error('--bundle requires a service frontend, not native entry')
     if args.native and (args.native_stack_bytes is not None or args.user_stack_bytes is not None):p.error('native entry uses the Loader stack; create owned RTOS tasks for resident work')
     for directory in args.include_dir:compile_flags+=['-I',str(directory.resolve(strict=True))]
     if args.debug:compile_flags+=['-g','-fno-omit-frame-pointer']
@@ -90,6 +92,9 @@ def main(argv=None):
                 native_stack_bytes=args.native_stack_bytes,user_stack_bytes=args.user_stack_bytes)
     if args.target=='zr-c110':require_module_target(data)
     elif data[24:56]!=bytes.fromhex(identity):raise ValueError('module target identity differs')
+    if args.bundle:
+        from wlm_bundle import encode_frontend_bundle
+        data=encode_frontend_bundle(data,args.id,bytes.fromhex(identity))
     preflight=validate_package(data,bytes.fromhex(identity))
     row.update(sha256=hashlib.sha256(data).hexdigest(), bytes=len(data))
     (out / row['file']).write_bytes(data)
@@ -98,7 +103,7 @@ def main(argv=None):
     # its compiled source identity merely because another adapter changed.
     sources = [source,*support,*libraries,*sorted(dependencies),
                ROOT / 'host/build_sdk_module.py', ROOT / 'host/pack_module.py',
-               ROOT / 'host/target_c110.py',ROOT/'host/module_header.py',ROOT/'host/platform_profiles.py',ROOT/'src/memory.c']
+               ROOT / 'host/target_c110.py',ROOT/'host/module_header.py',ROOT/'host/platform_profiles.py',ROOT/'src/memory.c',ROOT/'host/wlm_bundle.py']
     if args.target == 'z63-c201':
         sources.append(ROOT / 'targets/z63-c201.json')
     report = dict(modules=[row], target=args.target, preflight=preflight, simd=args.simd, optimize=args.optimize,

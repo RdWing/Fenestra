@@ -23,11 +23,40 @@ static int in_segment(const FxModule *module, uint32_t offset, uint32_t bytes,
     return 0;
 }
 
+static int frontend_bundle(const uint8_t *p,uint32_t n) {
+    return p && n>=16u && !memcmp(p,"FENESTRA",8u) && u32(p+8u)==4u && u32(p+12u)==192u;
+}
+static FxResult bundle_frontend(const uint8_t *p,uint32_t n,const uint8_t target[32]) {
+    if(n<=320u || n>FX_CARD_LIMIT)return FX_BOUNDS;
+    if(u32(p+16u)!=1u || u32(p+20u)!=1u || memcmp(p+24u,target,32u))return FX_CAPABILITY;
+    if(u32(p+88u)!=n || u32(p+92u) || u32(p+96u)!=192u || u32(p+100u)!=n-192u)return FX_BOUNDS;
+    if(u32(p+136u)!=192u || u32(p+140u) || u32(p+144u)!=64u || u32(p+148u)!=1u)return FX_CAPABILITY;
+    uint32_t length=0u;
+    while(length<16u && p[152u+length]) {
+        uint8_t c=p[152u+length];
+        if(!((c>='a' && c<='z') || (c>='0' && c<='9') || c=='_' || c=='-'))return FX_INTEGRITY;
+        ++length;
+    }
+    if(!length || length==16u)return FX_INTEGRITY;
+    for(uint32_t i=152u+length;i<192u;++i)if(p[i])return FX_INTEGRITY;
+    uint8_t hash[32];fx_sha256(p+192u,n-192u,hash);
+    if(memcmp(hash,p+56u,32u) || memcmp(hash,p+104u,32u))return FX_INTEGRITY;
+    uint32_t version=u32(p+200u);
+    if((version!=2u && version!=3u) || fx_module_header_entry(p+192u,n-192u)!=FX_MODULE_ENTRY_SERVICES)return FX_CAPABILITY;
+    return FX_OK;
+}
+
 FxResult fx_module_inspect(const uint8_t *package,uint32_t size,const uint8_t firmware[32],
                            uint64_t caps,uint32_t capacity,FxModule *out) {
     if(!out)return FX_ARGUMENT;
     memset(out,0,sizeof(*out));
     if(!package || !firmware || size<FX_MODULE_HEADER || size>FX_NATIVE_MODULE_PACKAGE_LIMIT)return FX_ARGUMENT;
+    if(frontend_bundle(package,size)) {
+        if(!firmware)return FX_ARGUMENT;
+        FxResult r=bundle_frontend(package,size,firmware);
+        if(r!=FX_OK)return r;
+        return fx_module_inspect(package+192u,size-192u,firmware,caps,capacity,out);
+    }
     FxModule candidate;uint8_t hash[32];uint32_t i,j,tables_end,relocations_start;
     uint32_t entry_abi=fx_module_header_entry(package,size);
     if (memcmp(package, "FENESTRA", 8u) != 0 || entry_abi==UINT32_MAX ||
@@ -124,6 +153,11 @@ FxResult fx_module_prepare(const uint8_t *package, uint32_t size,
         return FX_ARGUMENT;
     fx_sha256(package, size, hash);
     if (memcmp(hash, expected_digest, 32u) != 0) return FX_INTEGRITY;
+    if(frontend_bundle(package,size)) {
+        FxResult r=bundle_frontend(package,size,firmware);
+        if(r!=FX_OK)return r;
+        return fx_module_prepare(package+192u,size-192u,package+104u,firmware,caps,image,capacity,out);
+    }
     FxResult result=fx_module_inspect(package,size,firmware,caps,capacity,&candidate);
     if(result!=FX_OK)return result;
     relocations_start=FX_MODULE_HEADER+candidate.segment_count*24u;

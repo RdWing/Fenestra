@@ -1,7 +1,13 @@
 """Decode the entry contract in a .wlm header, independently of its name."""
 import struct
 
+def is_frontend_bundle(data):
+    return len(data)>=16 and data[:8]==b'FENESTRA' and struct.unpack_from('<2I',data,8)==(4,192)
+
 def entry_abi(data):
+    if is_frontend_bundle(data):
+        from wlm_bundle import decode_frontend_bundle
+        return decode_frontend_bundle(data,data[24:56])['entry_abi']
     if len(data)<128 or data[:8]!=b'FENESTRA':raise ValueError('module header missing')
     version,header,abi,isa=struct.unpack_from('<4I',data,8)
     if (header,abi,isa)!=(128,1,1) or version not in (1,2,3,4):raise ValueError('unsupported module header')
@@ -23,6 +29,9 @@ STACK_LIMIT = 1024 * 1024
 
 
 def stack_requirements(data):
+    if is_frontend_bundle(data):
+        from wlm_bundle import decode_frontend_bundle
+        return stack_requirements(decode_frontend_bundle(data,data[24:56])['frontend'])
     entry_abi(data)
     if entry_abi(data)==2:return 0,0
     if struct.unpack_from('<I', data, 8)[0] < 3:
@@ -41,6 +50,11 @@ def validate_package(data, identity, *, capabilities=0x7f0000):
     workers' capacities. The target identity is supplied by the chosen profile.
     This is corruption/ABI validation, not a package signature or sandbox.
     """
+    if is_frontend_bundle(data):
+        from wlm_bundle import decode_frontend_bundle
+        result=decode_frontend_bundle(data,identity,capabilities=capabilities)
+        result.pop('frontend')
+        return result
     native=entry_abi(data)==2
     if not 128 < len(data) <= (32*1024*1024 if native else PACKAGE_LIMIT):
         raise ValueError('module package exceeds native worker capacity')

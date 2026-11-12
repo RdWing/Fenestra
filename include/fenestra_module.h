@@ -26,7 +26,8 @@ static inline int fx_module_stacks_valid(FxModuleStacks s) {
 enum {FX_MODULE_ENTRY_LEGACY=0u,FX_MODULE_ENTRY_SERVICES=1u,FX_MODULE_ENTRY_NATIVE=2u};
 /* v2/v3 declare the copied-service entry ABI at byte116. v3 declares RTOS
  * and EL0 stack bytes at120/124; v1/v2 retain the original 64KiB defaults.
- * v4 selects native resident entry ABI2 with both stack fields zero.
+ * A 128-byte v4 header selects native resident ABI2 with zero stack fields.
+ * A 192-byte v4 bundle carries a separately validated service frontend.
  * v1 SDK packages can
  * be recognized by their original service capability bits, never filename.
  * Zero-capability compute-only SDK modules must use the explicit v2 tag. */
@@ -35,6 +36,8 @@ static inline uint32_t fx_module_header_entry(const uint8_t *p,uint32_t bytes) {
     uint32_t version=(uint32_t)p[8]|(uint32_t)p[9]<<8|(uint32_t)p[10]<<16|(uint32_t)p[11]<<24;
     if(version!=1u && version!=2u && version!=3u && version!=4u)return UINT32_MAX;
     if(version<3u)for(uint32_t i=version==2u?120u:116u;i<FX_MODULE_HEADER;++i)if(p[i])return UINT32_MAX;
+    if(version==4u && p[12]==192u && !p[13] && !p[14] && !p[15])
+        return bytes>=192u?FX_MODULE_ENTRY_SERVICES:UINT32_MAX;
     if(version==4u) {
         if(p[120] || p[121] || p[122] || p[123] || p[124] || p[125] || p[126] || p[127])return UINT32_MAX;
         return ((uint32_t)p[116]|(uint32_t)p[117]<<8|(uint32_t)p[118]<<16|(uint32_t)p[119]<<24)==FX_MODULE_ENTRY_NATIVE?FX_MODULE_ENTRY_NATIVE:UINT32_MAX;

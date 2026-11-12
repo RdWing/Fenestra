@@ -43,6 +43,12 @@ FxResult fx_module_directory_inspect_accounted(const FxModuleDirectory *io,const
     if(r==FX_OK && bytes!=size)r=FX_INTEGRITY;
     if(r==FX_OK && fx_module_header_entry(buffer,bytes)!=FX_MODULE_ENTRY_SERVICES && fx_module_header_entry(buffer,bytes)!=FX_MODULE_ENTRY_NATIVE)r=FX_CAPABILITY;
     if(r==FX_OK)r=fx_module_inspect(buffer,bytes,firmware,capabilities,FX_RESIDENT_IMAGE_LIMIT,&module);
+    if(r==FX_OK && bytes>=192u && buffer[8]==4u && buffer[12]==192u) {
+        uint32_t n=0u;while(n<16u && buffer[152u+n])++n;
+        int suffix=(name_bytes==n+4u && !memcmp(copied_name+n,".wlm",5u)) ||
+                   (name_bytes==n+13u && !memcmp(copied_name+n,".wlm.disabled",14u));
+        if(n>=16u || !suffix || memcmp(copied_name,buffer+152u,n))r=FX_INTEGRITY;
+    }
     if(r==FX_OK){fx_sha256(buffer,bytes,digest);*out=module;}
     if(temporary){memory.release(memory.context,buffer);fx_allocation_observe(observer,room,FX_ALLOC_FREE_PENDING);}
     return r;

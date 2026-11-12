@@ -573,8 +573,8 @@
     },
     {
       "path": "host/build_sdk_module.py",
-      "bytes": 7515,
-      "sha256": "42c1d603d64a8bdc66bbbe454fc08c0c654cd90efc5bc9dc3f2d87f6ca0fe78c",
+      "bytes": 7906,
+      "sha256": "0bc927b3f635cb2f5050bbff991987711503aebc46e2477a980113e12ca8db17",
       "origin": "project-source",
       "snapshot_sha256": "b42e7689ae395994449f268d43add051d9af413785c6f5d2fc805bbf88dc0f8c",
       "transformed": true,
@@ -763,8 +763,8 @@
       "transformed": false,
       "license": "CC-BY-NC-SA-4.0",
       "additional_permission": "EXCEPTIONS.md",
-      "bytes": 2465,
-      "sha256": "c8889aa41e81eb859641dd354f5dddcf84c6fb4648c16efca96da9ce16b25bda"
+      "bytes": 2486,
+      "sha256": "c9e2e5761b3872ebe4ac5017de1e0fc919ae5dd3ef1149eab5969e87fbd6a8a8"
     },
     {
       "path": "host/factor_m2_hypotheses.py",
@@ -833,8 +833,8 @@
     },
     {
       "path": "host/module_header.py",
-      "bytes": 5265,
-      "sha256": "36f4276b37b6e7116b0a2dcc6909e1993f3b029f3636374f05de6e9362b73bf1",
+      "bytes": 5943,
+      "sha256": "23a67a2c8822a4c493c7e69b7dd03031308ae0e7276fe899576b690aa9a65598",
       "origin": "project-source",
       "snapshot_sha256": "c20ccfe9542bca9a57761654d33443ab6fb79029e7a6ca4d91e97520c7da685c",
       "transformed": true,
@@ -1175,6 +1175,16 @@
       "additional_permission": "EXCEPTIONS.md",
       "bytes": 4480,
       "sha256": "8b70d413b0bb217c371975f4077205c55abac641f8116ed31755bfdcfb2d09d0"
+    },
+    {
+      "path": "host/wlm_bundle.py",
+      "origin": "authored-for-public-distribution",
+      "snapshot_sha256": null,
+      "transformed": false,
+      "license": "CC-BY-NC-SA-4.0",
+      "additional_permission": "EXCEPTIONS.md",
+      "bytes": 3059,
+      "sha256": "e5f237a53838a1057001edb444ea699304dca120898bb8d619313d159fa971c3"
     },
     {
       "path": "host/z63_bindings.py",
@@ -1818,8 +1828,8 @@
     },
     {
       "path": "include/fenestra_module.h",
-      "bytes": 4062,
-      "sha256": "28e1a38fcb56983f5c2682d431661415c878127fd7758998afe4d9821387a275",
+      "bytes": 4271,
+      "sha256": "401bd230a9b98db5694e2c02f7d2070d6a7e4cb152cba5abfbfaf8971016e398",
       "origin": "project-source",
       "snapshot_sha256": "3087802fe797467c91d67bf4cdaff58ae06aee79ce0ba159f0cbf48a113519e5",
       "transformed": true,
@@ -2948,8 +2958,8 @@
     },
     {
       "path": "src/module.c",
-      "bytes": 8238,
-      "sha256": "13d87b45538cdb3368bb8a8a339d9737b42687e4f21ce7bddee669aeb5b6e257",
+      "bytes": 9966,
+      "sha256": "c9cf4a082f509a377d5a74468553a966911a5d18fe9742fb1847434078335edd",
       "origin": "project-source",
       "snapshot_sha256": "799c6ffa54eb1995a87c724daf5d78b0d7e635c910906445991508c2f00135f0",
       "transformed": true,
@@ -4691,8 +4701,8 @@
     },
     {
       "path": "src/services.c",
-      "bytes": 21780,
-      "sha256": "3a337b6f9accc56e22b7c397d5b065a27f379a482fcd335cc67cff0c4f1e3bcf",
+      "bytes": 22159,
+      "sha256": "70c799b616cbd1d1f014919cbfe6839828196c15290061ac1a0526aa101b438d",
       "origin": "project-source",
       "snapshot_sha256": "a93182e34b1e297e4b5cb3bf4af56d5c39be775d875dcce579de4288871470ab",
       "transformed": true,
@@ -4968,6 +4978,16 @@
       "additional_permission": "EXCEPTIONS.md",
       "bytes": 10669,
       "sha256": "a26a0631110fe001c4c9ab6984c01b89ac190b862c8149b556dacfa699929f03"
+    },
+    {
+      "path": "tests/test_frontend_bundle.py",
+      "origin": "authored-for-public-distribution",
+      "snapshot_sha256": null,
+      "transformed": false,
+      "license": "CC-BY-NC-SA-4.0",
+      "additional_permission": "EXCEPTIONS.md",
+      "bytes": 4971,
+      "sha256": "b19428b302eb85a18592dea0ef580b5e1e5d18697ca2c4794b24129d98545c9f"
     },
     {
       "path": "tests/test_log3g10_reference.py",

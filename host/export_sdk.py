@@ -6,7 +6,7 @@ from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
 FILES=('LICENSE','EXCEPTIONS.md','NOTICE','src/memory.c','src/stream.c','src/audio.c',
-       'host/build_sdk_module.py','host/pack_module.py','host/module_header.py','host/symbolize_module.py',
+       'host/build_sdk_module.py','host/pack_module.py','host/module_header.py','host/wlm_bundle.py','host/symbolize_module.py',
        'host/target_c110.py','host/platform_profiles.py','targets/nikon-zr.json','targets/z63-c201.json')
 
 def export(output):
