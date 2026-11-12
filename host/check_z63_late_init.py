@@ -161,6 +161,7 @@ def verify(main, build, output):
         m.put(0xa1722cfe0,0,'I')
         assert m.run(symbols['fx_z63_startup_request'],startup,1)==2
     busy_cases=0
+    ui_handoff=False
     if receipt.get('video') and receipt.get('activation'):
         trial();owner=m.get(slot)
         activation_meta=struct.unpack_from('<7I',image,symbols['fx_z63_activation_layout']-0x40160000)
@@ -176,6 +177,40 @@ def verify(main, build, output):
                 m.put(address,0,'I');busy_cases+=1
         assert m.run(symbols['activation_quiesced'],owner)==0
         assert m.get(gate,'I')==0
+        if 'fx_z63_menu_retirement_poll' in symbols:
+            # Target FxZ63Activation has phase/error, owned u64, resume/wake
+            # u32 (24 bytes); its two following u32s are the handoff inbox.
+            manual=owner+activation_meta[2]+24;repaint=manual+4
+            m.put(gate,3,'I');m.put(manual,1,'I')
+            group=0x180300;m.put(group,1)
+            ui_calls=[]
+            def ui_original(cpu,pc,size,data):
+                value=0
+                if pc==0x403eddf0:value=group
+                elif pc==0x403edebc:
+                    assert cpu.reg_read(arm.UC_ARM64_REG_X0)==group
+                    assert cpu.reg_read(arm.UC_ARM64_REG_X1)==0x200000
+                    ui_calls.append('wake')
+                elif pc==symbols['fx_z63_navigate_original']:
+                    assert cpu.reg_read(arm.UC_ARM64_REG_X0)==690
+                    ui_calls.append('stock-setup');value=1
+                elif pc==symbols['fx_z63_current_page']:value=0xa02912e10
+                cpu.reg_write(arm.UC_ARM64_REG_X0,value)
+                cpu.reg_write(arm.UC_ARM64_REG_PC,cpu.reg_read(arm.UC_ARM64_REG_LR))
+            handles=[u.hook_add(UC_HOOK_CODE,ui_original,begin=pc,end=pc) for pc in (
+                0x403eddf0,0x403edebc,0x403e9510,symbols['fx_z63_navigate_original'],symbols['fx_z63_current_page'])]
+            assert m.run(symbols['activation_quiesced'],owner)==5
+            assert m.get(repaint,'I')==1 and m.get(gate,'I')==3
+            dispatch=m.run(symbols['fx_native_ui_dispatch_domain']);m.put(dispatch,0xaabb)
+            context=0x180500;m.put(context,0xccdd);u.reg_write(arm.UC_ARM64_REG_TPIDR_EL1,context)
+            m.run(symbols['fx_native_ui_poll_native'],0)
+            assert 'stock-setup' not in ui_calls and m.get(repaint,'I')==1
+            m.put(context,0xaabb);m.run(symbols['fx_native_ui_poll_native'],0)
+            assert ui_calls.count('stock-setup')==1 and m.get(repaint,'I')==3
+            assert m.run(symbols['activation_quiesced'],owner)==0 and m.get(gate,'I')==0
+            u.reg_write(arm.UC_ARM64_REG_TPIDR_EL1,0)
+            for handle in handles:u.hook_del(handle)
+            ui_handoff=True
     trial()
     startup_layout=struct.unpack_from('<7I',image,symbols['fx_z63_startup_layout']-0x40160000)
     assert startup_layout[:2]==(0x46584236,1)
@@ -214,6 +249,7 @@ def verify(main, build, output):
             'published_shell_lookup_and_text_survive_updater_admission':True,
             'updater_session_retires_startup_worker_and_blocks_new_commands':True,
             'busy_native_fields_refuse_hook_retirement':busy_cases,
+            'manual_retirement_waits_for_captured_ui_handoff':ui_handoff,
             'task_start_fixture':'One supplied budget refusal checks mount admission; no task executes.',
             'scope':__doc__,'physical_camera_tested':False,
             'source_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),

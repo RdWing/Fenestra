@@ -1571,7 +1571,18 @@ def main():
                         from z63_activation import CONTROL_RAM
                         if read64(CONTROL_RAM)>>32!=2:raise RuntimeError('manual deactivation retained automatic wake eligibility')
                         startup_result['manual_deactivation_tested']=True
-                        qmp('screendump',{'filename':str(out/'deactivated.ppm')})
+                        if view()>>16!=690:raise RuntimeError('deactivation did not hand presentation back to stock Setup')
+                        deadline=time.monotonic()+5
+                        visible=0.0
+                        while time.monotonic()<deadline:
+                            qmp('screendump',{'filename':str(out/'deactivated.ppm')})
+                            _,_,_,pixels=(out/'deactivated.ppm').read_bytes().split(b'\n',3)
+                            visible=sum(max(pixels[i:i+3])>=32 for i in range(0,len(pixels),12))/(len(pixels)//12)
+                            if visible>.10:break
+                            time.sleep(.1)
+                        if visible<=.10:raise RuntimeError('deactivation left the native display blank')
+                        startup_result['stock_setup_visible_after_deactivation']=True
+                        startup_result['deactivated_visible_fraction']=visible
                     if args.shutdown_test:
                         qmp('qom-set',{'path':'/machine','property':'mcu-keys','value':'power=off'})
                         startup_result['stopped']=boot_wait(lambda s:s['phase']==7 and s['shutdown_done']==1 and not s['error'])

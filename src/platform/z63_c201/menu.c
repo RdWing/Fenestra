@@ -20,6 +20,7 @@
 #endif
 #ifdef FX_Z63_UI
 #include "ui.h"
+#include "fenestra_native_ui_dispatch.h"
 #endif
 #define TEXT 3285u
 #define PAGE 0x7000u
@@ -46,6 +47,7 @@ typedef struct {
     _Atomic(FxZ63Runtime *) runtime;
     FxZ63Startup startup;
     FxZ63Activation activation;
+    _Atomic uint32_t manual_stop,repaint;
     uint16_t boot_text[3][64];
 #endif
 #ifdef FX_Z63_PTP
@@ -118,6 +120,15 @@ static FxResult activation_quiesced(void *context) {
 #ifdef FX_Z63_VIDEO
     if(!fx_z63_video_quiescent(&s->video))return FX_BUSY;
 #endif
+#ifdef FX_Z63_UI
+    if(atomic_load(&s->manual_stop) && atomic_load_explicit(&s->repaint,memory_order_acquire)!=3u) {
+        uint32_t none=0u;(void)atomic_compare_exchange_strong(&s->repaint,&none,1u);
+        void *group=((void *(*)(void))fx_native_ui_dispatch_profile.event_group)();
+        if(group && *(const uintptr_t *)group)
+            ((void (*)(void *,uint32_t))fx_native_ui_dispatch_profile.event_set)(group,fx_native_ui_dispatch_profile.wake_mask);
+        return FX_BUSY;
+    }
+#endif
     atomic_store_explicit(&s->activated,0u,memory_order_release);
     return fx_z63_activation_restore(&s->activation);
 }
@@ -128,6 +139,7 @@ static void activation_stop(void *context) {
     State *s=context;
     uint32_t active=1u;
     if(!atomic_compare_exchange_strong(&s->activated,&active,3u))return;
+    atomic_store(&s->manual_stop,1u);
     fx_z63_lifecycle_record(&s->lifecycle,8u);
     fx_z63_activation_retire(&s->activation,0);
 #ifdef FX_Z63_UI
@@ -145,12 +157,21 @@ static uint32_t boot_command(uint32_t command) {
         (void)fx_z63_startup_request(&s->startup,command);
     return 1u;
 }
-static uint32_t auto_toggle(void *context){(void)context;return boot_command(FX_Z63_BOOT_DEACTIVATE);}
+static uint32_t auto_toggle(void *context){(void)context;
+#ifdef FX_Z63_UI
+    fx_native_ui_capture_task();
+#endif
+    return boot_command(FX_Z63_BOOT_DEACTIVATE);
+}
 static uint32_t guard_clear(void *context){(void)context;return 1u;}
 #endif
 static uint32_t activate(void *context) {
 #ifdef FX_Z63_RUNTIME
-    (void)context;return boot_command(FX_Z63_BOOT_ACTIVATE);
+    (void)context;
+#ifdef FX_Z63_UI
+    fx_native_ui_capture_task();
+#endif
+    return boot_command(FX_Z63_BOOT_ACTIVATE);
 #else
     (void)context;State *s=state();
     if(!s || !fx_z63_lifecycle_accepts_work(&s->lifecycle) ||
@@ -500,3 +521,19 @@ uint64_t fx_z63_menu_navigate(uint32_t page) {
     }
     return fx_z63_navigate_original(page);
 }
+#if defined(FX_Z63_RUNTIME) && defined(FX_Z63_UI)
+int fx_z63_menu_retirement_pending(void) {
+    State *s=state();return s && atomic_load(&s->manual_stop) && atomic_load(&s->repaint)==1u;
+}
+void fx_z63_menu_retirement_poll(void) {
+    /* Called last by the captured original UI task, while the RAM input
+     * hooks are still installed. Module teardown can blank its old surface;
+     * return to Nikon's Setup page before retiring the handoff hooks. */
+    State *s=state();if(!s || !atomic_load(&s->manual_stop))return;
+    uint32_t pending=1u;
+    if(!atomic_compare_exchange_strong(&s->repaint,&pending,2u))return;
+    (void)fx_z63_menu_navigate(690u);
+    const FxNativePage *page=((const FxNativePage *(*)(void))fx_native_ui_dispatch_profile.current_page)();
+    atomic_store_explicit(&s->repaint,page && (page->identity>>16)==690u?3u:1u,memory_order_release);
+}
+#endif

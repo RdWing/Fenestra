@@ -13,6 +13,10 @@ static int ui_task(FxNativeUiDispatch *d) {
 #ifdef FX_Z63_VIDEO
 extern int fx_z63_video_menu_visible(const FxNativePage *);
 #endif
+#ifdef FX_Z63_RUNTIME
+extern int fx_z63_menu_retirement_pending(void);
+extern void fx_z63_menu_retirement_poll(void);
+#endif
 static int module_page(void) {
     const FxNativePage *page=((const FxNativePage *(*)(void))fx_native_ui_dispatch_profile.current_page)();
     uint32_t id=page?page->identity>>16:0u;
@@ -40,11 +44,18 @@ uint32_t fx_native_ui_poll_native(void *flags) {
 #endif
     if(d && atomic_load_explicit(&d->task,memory_order_acquire))
         (void)fx_ui_dispatch_poll(d,current_task(),module_page(),fx_native_ui_flush_owner);
+#ifdef FX_Z63_RUNTIME
+    if(ui_task(d))fx_z63_menu_retirement_poll();
+#endif
     return result;
 }
 uint32_t fx_native_ui_wait_native(void) {
     uint32_t result=((uint32_t (*)(void))fx_native_ui_dispatch_profile.next_wait)();
     FxNativeUiDispatch *d=fx_native_ui_dispatch_domain();
+#ifdef FX_Z63_RUNTIME
+    if(ui_task(d) && fx_z63_menu_retirement_pending() && result>fx_native_ui_dispatch_profile.interval_ms)
+        result=fx_native_ui_dispatch_profile.interval_ms;
+#endif
     if(ui_task(d) && fx_native_apps_pending(fx_native_apps_domain()) && result>fx_native_ui_dispatch_profile.interval_ms)
         result=fx_native_ui_dispatch_profile.interval_ms;
 #ifdef FX_NATIVE_TASKS

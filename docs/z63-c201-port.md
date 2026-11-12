@@ -35,6 +35,8 @@ admission. The Setup shell and independent integrity/update guards remain
 permanent. **Deactivate Fenestra** stops new module work, retains callbacks
 while native work drains, and restores only owned words. No loaded native
 storage is freed. A card removal or uncertain cleanup requires a new session.
+Manual deactivation waits for the controller's final UI work and returns to
+Nikon's Setup menu on the original UI task before retiring the input hooks.
 
 Once activation claims a session, normal firmware-update starts are refused
 until a cold start re-copies text, including after deactivation or standby.

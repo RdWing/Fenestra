@@ -15,7 +15,7 @@ struct FxZ63Runtime {
     FxZ63TaskScope task;FxZ63Directory directory;FxModuleInventory inventory;
     FxZ63ModuleWorker **workers;FxZ63Services **services;
     FxResident **residents;FxPlatformOwner **owners;
-    _Atomic uint32_t count,stop,published,error;
+    _Atomic uint32_t count,stop,published,error,exited;
 #ifdef FX_Z63_UI
     FxNativePanicPage *panic;
 #endif
@@ -171,15 +171,15 @@ static void run_work(void *context) {
         if(fx_z63_task_delay_ticks(10u)!=FX_OK){fx_z63_probe_module_result(40u,FX_IO,0u);return;}
     }
 }
-static void run(void *context){run_work(context);
+static void run(void *context){FxZ63Runtime *s=context;run_work(s);
 #ifdef FX_Z63_UI
-    FxZ63Runtime *s=context;
     if(s->panic && atomic_load(&s->stop)) {
         atomic_store_explicit(&s->panic->render_gate,0u,memory_order_release);
         fx_native_display_detach(&s->panic->display);
     }
     fx_z63_ui_ready();
 #endif
+    atomic_store_explicit(&s->exited,1u,memory_order_release);
 }
 void fx_z63_probe_module_start(void) {
     FxZ63Runtime *s=allocate(0,(uint32_t)sizeof(*s));void *stack=allocate(0,65536u+16u);
@@ -209,7 +209,8 @@ uint32_t fx_z63_runtime_state(const FxZ63Runtime *s) {
         quiesced+=(uint32_t)(phase==FX_Z63_WORKER_QUIESCED);
         pending+=(uint32_t)(phase==FX_Z63_WORKER_LOADING || phase==FX_Z63_WORKER_EMPTY || phase==FX_Z63_WORKER_STOPPING);
     }
-    if(atomic_load(&s->stop) && quiesced==count)return 3u;
+    if(atomic_load(&s->stop) && quiesced==count)
+        return atomic_load_explicit(&s->exited,memory_order_acquire)?3u:0u;
     return pending?0u:1u;
 }
 uint32_t fx_z63_runtime_count(const FxZ63Runtime *s){return s?atomic_load_explicit(&s->count,memory_order_acquire):0u;}
