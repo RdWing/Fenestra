@@ -18,7 +18,7 @@ python3 host/prepare_z63_r3dne.py \
 
 The builder produces `r3dne.wlm`, `card-layout/FENESTRA/r3dne.wlm`, the matching core candidate, an exported SDK and test results. It includes a complete source snapshot and builds from that snapshot. It compares source and SDK builds byte for byte. `PACKAGE.json` pins the matrix, module, core and test inputs. `INVENTORY.json` pins every generated file. It refuses an existing output directory.
 
-The package uses managed WLM v3 with 65,536-byte native and user stacks. Its required capability mask is **`0x390000`**: Query, Native, Menu and Binding. Earlier R3D packages used `0x310000`, which omitted Native and could not open `camera.video.raw`. The corrected fixture uses the declared grant and checks that the old mask fails before native access.
+The package uses a WLM v4 frontend bundle containing a managed v3 service app with 65,536-byte native and user stacks. Its required capability mask is **`0x390000`**: Query, Native, Menu and Binding. Earlier R3D packages used `0x310000`, which omitted Native and could not open `camera.video.raw`. The corrected fixture uses the declared grant and checks that the old mask fails before native access.
 
 The current loader scans `A:\FENESTRA\*.wlm` directly. It does not read a `MODULES` manifest. The card layout contains one module file and creates no startup flags or configuration. Preserve existing ProRes files and startup journals when a later authorized deployment merges this layout. The module's firmware identity alone does not identify the installed core. Use the core identity in `PACKAGE.json`.
 
@@ -26,7 +26,7 @@ A direct module build uses the same contract:
 
 ```sh
 python3 host/build_sdk_module.py modules/r3dne/module.c \
-  --target z63-c201 --id r3dne --required 0x390000 \
+  --target z63-c201 --id r3dne --bundle --required 0x390000 \
   --native-stack-bytes 65536 --user-stack-bytes 65536 \
   --output-dir /path/to/new/module-build
 ```

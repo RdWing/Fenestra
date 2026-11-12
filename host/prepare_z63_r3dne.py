@@ -90,7 +90,7 @@ def prepare(application, output, llvm_bin, linker):
         run([sys.executable, str(snapshot/'host/export_sdk.py'), '--output', str(stage/'sdk')],
             checks/'sdk-export.log', environment, snapshot)
         source = snapshot/'modules/r3dne/module.c'
-        options = [str(source), '--target', 'z63-c201', '--id', 'r3dne',
+        options = [str(source), '--target', 'z63-c201', '--id', 'r3dne', '--bundle',
                    '--required', hex(CAPABILITIES), '--native-stack-bytes', str(STACK_BYTES),
                    '--user-stack-bytes', str(STACK_BYTES)]
         for name, builder in [('source', snapshot/'host/build_sdk_module.py'),
@@ -101,7 +101,7 @@ def prepare(application, output, llvm_bin, linker):
         if module != (stage/'build-sdk/r3dne.wlm').read_bytes():
             raise ValueError('source and SDK module builds differ')
         contract = validate_package(module, bytes.fromhex(profile['payload_sha256']), capabilities=CAPABILITIES)
-        if (struct.unpack_from('<I', module, 8)[0] != 3 or contract['entry_abi'] != 1
+        if (struct.unpack_from('<I', module, 8)[0] != 4 or contract['entry_abi'] != 1
                 or contract['required'] != CAPABILITIES
                 or contract['native_stack_bytes'] != STACK_BYTES or contract['user_stack_bytes'] != STACK_BYTES):
             raise ValueError('managed RAW module contract differs')
@@ -132,7 +132,7 @@ def prepare(application, output, llvm_bin, linker):
                     application_sha256=profile['application_sha256'],
                     core_candidate_sha256=core['candidate_sha256'],
                     module_sha256=hashlib.sha256(module).hexdigest(), module_contract=contract,
-                    module_version=3, source_sdk_identical=True,
+                    module_version=4, frontend_version=3, native_component_count=0, source_sdk_identical=True,
                     matrix=dict(profile_id=1, source_commit=BLUE_COMMIT,
                                 source_path=reference['source_path'], nrmt_key='0x01900012',
                                 bytes_hex=matrix.hex(), sha256=MATRIX_SHA256,

@@ -7,7 +7,7 @@ experimental video core. Build the module with the Z63 SDK and an ID of
 `h265`:
 
 ```sh
-python host/build_sdk_module.py modules/h265/module.c --id h265 --target z63-c201 --required 0x390000 --native-stack-bytes 65536 --user-stack-bytes 65536 --output-dir build/h265-module
+python host/build_sdk_module.py modules/h265/module.c --id h265 --target z63-c201 --bundle --required 0x390000 --native-stack-bytes 65536 --user-stack-bytes 65536 --output-dir build/h265-module
 ```
 
 The choice is saved through the original camera settings worker. The service

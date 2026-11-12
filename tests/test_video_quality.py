@@ -38,15 +38,21 @@ class VideoQualityTests(unittest.TestCase):
                 str(ROOT/'src/video_quality.c'),str(ROOT/'src/memory.c'),'-o',str(binary)],check=True)
             subprocess.run([str(binary)],check=True)
 
+    def test_log_frontend_refusal_cancellation_and_stock_only_gate(self):
+        self.check_two_choice_app(['-DFX_LOG_APP=1'], ['stock-only'])
+
     def test_raw_managed_module_package_capabilities_selection_and_retirement(self):
+        self.check_two_choice_app([], [])
+
+    def check_two_choice_app(self, flags, extra_cases):
         cc=shutil.which('clang') or shutil.which('cc')
         if not cc:self.skipTest('C compiler unavailable')
         with tempfile.TemporaryDirectory() as tmp:
             binary=Path(tmp)/'raw-module'
-            subprocess.run([cc,'-std=c11','-Wall','-Wextra','-Werror','-Wconversion','-Wshadow',
+            subprocess.run([cc,'-std=c11','-Wall','-Wextra','-Werror','-Wconversion','-Wshadow',*flags,
                 '-I',str(ROOT/'include'),*[str(ROOT/p) for p in ['tests/raw_module_fixture.c',
                     'src/video_quality.c','src/platform.c','src/binding_store.c','src/native_call.c','src/accounting.c',
                     'src/services.c','src/module.c','src/sha256.c','src/memory.c','src/extensions.c','src/stream.c']],'-o',str(binary)],check=True)
-            for case in ('default','old-core','missing-native','active-fault','retry-cancel','retry-cancel-release','retry-latest','retry-release'):
+            for case in ['default','old-core','missing-native','active-fault','retry-cancel','retry-cancel-release','retry-latest','retry-release',*extra_cases]:
                 with self.subTest(case=case):
                     subprocess.run([str(binary),*(() if case=='default' else (case,))],check=True)

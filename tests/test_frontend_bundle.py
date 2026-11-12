@@ -57,6 +57,7 @@ class FrontendBundleTests(unittest.TestCase):
             temp=Path(temp);source=temp/'check.c';binary=temp/'check'
             source.write_text(r'''
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "fenestra_module.h"
 #include "fenestra.h"
@@ -64,9 +65,19 @@ class FrontendBundleTests(unittest.TestCase):
 #include "fenestra_extensions.h"
 FxExtensionDomain *fx_native_extensions(FxPlatformOwner *p){(void)p;return 0;}
 static unsigned char package[4096];
-static uint32_t package_bytes;
+static uint32_t package_bytes,reads,position,bad_visible;
+static FxResult directory_open(void *c){(void)c;position=0;reads=0;return FX_OK;}
+static FxResult directory_next(void *c,FxModuleDirectoryEntry *e){
+ (void)c;if(position>=2)return FX_EMPTY;
+ memset(e,0,sizeof(*e));
+ strcpy(e->name,position++?"unit.wlm":bad_visible?"bad name.wlm":"._unit.wlm");
+ e->bytes=package_bytes;return FX_OK;
+}
+static FxResult directory_close(void *c){(void)c;return FX_OK;}
+static void *allocate(void *c,uint32_t n){(void)c;return malloc(n);}
+static void release(void *c,void *p){(void)c;free(p);}
 static FxResult read_package(void *c,const char *name,uint8_t *out,uint32_t cap,uint32_t *n){
- (void)c;(void)name;if(cap<package_bytes)return FX_BOUNDS;
+ (void)c;++reads;if(name[0]=='.')return FX_INTEGRITY;if(cap<package_bytes)return FX_BOUNDS;
  memcpy(out,package,package_bytes);*n=package_bytes;return FX_OK;
 }
 static _Alignas(4096) unsigned char image[4096];
@@ -83,6 +94,11 @@ int main(int argc,char **argv){
   if(fx_module_directory_inspect(&io,"unit.wlm",n,target,0,(FxIndexMemory){0},scratch,sizeof(scratch),&m,digest)!=FX_OK)return 21;
   if(fx_module_directory_inspect(&io,"unit.wlm.disabled",n,target,0,(FxIndexMemory){0},scratch,sizeof(scratch),&m,digest)!=FX_OK)return 22;
   if(fx_module_directory_inspect(&io,"other.wlm",n,target,0,(FxIndexMemory){0},scratch,sizeof(scratch),&m,digest)!=FX_INTEGRITY)return 23;
+  io.open=directory_open;io.next=directory_next;io.close=directory_close;
+  FxModuleInventory inventory={0};FxIndexMemory memory={0,allocate,release};
+  if(fx_modules_discover(&io,target,0,scratch,sizeof(scratch),&inventory,memory)!=FX_OK || inventory.count!=1 || reads!=1)return 24;
+  fx_modules_destroy(&inventory);bad_visible=1;
+  if(fx_modules_discover(&io,target,0,scratch,sizeof(scratch),&inventory,memory)!=FX_ARGUMENT || inventory.count || reads)return 25;
   return 0;
  }
  for(unsigned i=0;i<sizeof(image);++i)if(image[i]!=0xa5)return 12;

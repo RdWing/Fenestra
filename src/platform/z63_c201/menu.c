@@ -66,6 +66,7 @@ static State *prepared_state(void) {
 static State *state(void){State *s=prepared_state();return s && atomic_load_explicit(&s->installed,memory_order_acquire)?s:0;}
 #ifdef FX_Z63_VIDEO
 FxZ63VideoQuality *fx_z63_menu_video(void){State *s=prepared_state();return s?&s->video:0;}
+__attribute__((used,retain)) const uint32_t fx_z63_raw_layout[]={0x46585251u,1u,offsetof(FxZ63VideoQuality,raw)};
 const uint32_t fx_z63_video_layout[]={0x46585651u,1u,offsetof(State,video),
     offsetof(FxZ63VideoQuality,policy),offsetof(FxVideoQualityPolicy,effective),
     offsetof(FxVideoQualityPolicy,requested),offsetof(FxVideoQualityPolicy,registered),

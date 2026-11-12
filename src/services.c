@@ -82,7 +82,7 @@ FxResult fx_modules_discover_accounted(const FxModuleDirectory *io,const uint8_t
         FxModuleDirectoryEntry item={0};result=io->next(io->context,&item);
         if(result==FX_EMPTY){result=FX_OK;exhausted=1u;break;}
         if(result!=FX_OK)break;
-        if(item.attributes&0x18u || !item.name[0])continue;
+        if(item.attributes&0x18u || !item.name[0] || item.name[0]=='.')continue;
         uint32_t n=0;while(n<32u && item.name[n])++n;
         uint32_t disabled=n>9u && !memcmp(item.name+n-9u,".disabled",9u);
         uint32_t end=n-(disabled?9u:0u);

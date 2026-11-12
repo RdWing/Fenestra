@@ -16,7 +16,7 @@ Build a core with `fenestra.py build --target z63-c201 --experimental-video`
 and the other required arguments. Build the module with LLVM on `PATH`:
 
 ```sh
-python host/build_sdk_module.py modules/prores/module.c --id prores --target z63-c201 --required 0x390000 --native-stack-bytes 65536 --user-stack-bytes 65536 --output-dir build/prores-ui
+python host/build_sdk_module.py modules/prores/module.c --id prores --target z63-c201 --bundle --required 0x390000 --native-stack-bytes 65536 --user-stack-bytes 65536 --output-dir build/prores-ui
 ```
 
 1. Copy `prores.wlm` into `FENESTRA/` on an emulator card.

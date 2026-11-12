@@ -62,3 +62,17 @@ These are parser/loader ceilings, not reserved or guaranteed available RAM. Imag
 Validate lengths and descriptor boundaries before hashing the body or allocating based on header values. Then check target identity, capabilities, segments and relocations. Reject truncated tables, integer overflow, overlapping segments, non-executable entries, unknown entry ABIs and nonzero reserved fields.
 
 Use `host/module_header.py:validate_package` for host preflight and compare its behavior with the C loader. `module.json` records build provenance and preflight results; it is not read during camera-side discovery. Installing a module does not require recompiling Fenestra.
+
+## Frontend bundles
+
+The 192-byte WLM v4 frontend envelope is distinct from the 128-byte v4
+native-resident package. `build_sdk_module.py --bundle` wraps a v2/v3 service
+frontend without changing its EL0 entry, capability grant or stack declarations.
+The current loader accepts zero native components and refuses component-bearing
+bundles. The backend remains in the matching core.
+
+The outer target must match the frontend and core target. Both outer checksums,
+canonical extents, reserved fields and identifier padding are checked. Directory
+inspection binds the identifier to the enabled or disabled filename. Inner
+validation and preparation retain the existing segment, relocation, permission
+and overlap checks. A wrapper does not grant native-entry privileges.

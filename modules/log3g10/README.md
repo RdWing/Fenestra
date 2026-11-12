@@ -1,5 +1,30 @@
 # Log3G10/RWG module boundary
 
+The selected recording profile now derives its M1 base from the ZR R3D NE
+metadata matrix: `[825,238,-22; -28,1106,-36; 5,26,1011]` in Q10. The original
+producer keeps its per-body calibration multiply. `host/z63_log_profile.py`
+independently derives the base and the five producer tables; it does not use
+the earlier scene-fitted transform or cancel the body calibration. Its
+1042/1024 scale and 24693 curve ceiling follow the standalone C2.01 patch.
+The ceiling remains an explicit highlight plateau.
+
+`host/check_z63_log_producers.py` builds the resident ARM source accessor and
+runs original C2.01 jobs with supplied producer-pointer substitutions. It
+checks H.265/ProRes job inputs, two body matrices, exact RGB/NLG output and
+Stock restoration. These are isolated ordinary-route jobs; the accessor is
+not yet installed in the live core and the color service remains gated.
+
+View assist has separate Z6III panel profiles in
+`host/z63_log_view_profile.py`: RWG to BT.709 for the rear monitor, and that
+conversion composed with the original C2.01 normal-view correction for the
+EVF. Coefficients must fit signed 12-bit storage. The original firmware
+record is checked before generating the profiles. Do not substitute the
+ZR/P3 monitor matrix or use the same matrix on both panels. Panel-specific
+tone curves, cache refresh, playback/live-view transitions and physical
+appearance still need validation. These monitoring profiles do not change
+the recording tables.
+
+
 The managed module builds for C2.01 and discovers the color service. The service reports explicit unavailable reasons and refuses nonstock activation. The C2.01 M1 matrix now has an original-code producer and movie-source binding. Its complete RGB basis and hardware order remain unresolved.
 
 The offline verifier reproduces 687 recovered ZR curve samples. It checks the exact ZR matrix bytes from blue-compressor commit 6ee37b7bb95074592c8989a96eaafc7ab4c23a51. The matrix source is crates/core/src/r3d.rs. No external converter implementation is copied. The independently authored minimal reference uses standard BMFF and NRMT parsing with the attributed matrix constant.
@@ -82,3 +107,10 @@ suites pass 40 host tests. These checks establish numerical and buffer-writing
 behavior; they do not establish recording activation or hardware pixel color.
 The reference Z8 ceiling of 24693 remains an explicit highlight plateau, not
 a target-camera calibration choice.
+
+The frontend consumes newer queued choices after BUSY and keeps the current
+choice until the service accepts or refuses it. Refusal returns to status
+readback without terminating the module. Host tests cover cancellation, retry,
+retained faults and the Stock-only service gate. Those tests use a supplied
+backend; they do not enable the live color path. Build a v4 frontend envelope
+with `host/build_sdk_module.py --bundle` and the matching bundle-aware core.

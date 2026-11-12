@@ -125,6 +125,8 @@ def main():
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--ptp-client', type=Path, help='matching external QEMU USB/IP PTP client, for native debug transport testing')
     parser.add_argument('--scanout-channel-tolerance',type=int,choices=range(5),default=0,help='explicit RGB tolerance for visual-return comparisons; default remains exact')
+    parser.add_argument('--nvme-serial',default='LOCALTEST',help='explicit virtual NVMe identity for matched controls')
+    parser.add_argument('--mode-dial',choices=('P','S','A','M','AUTO','U1','U2','U3'),help='explicit emulator mode-dial fixture')
     parser.add_argument('--seconds', type=float, default=35)
     parser.add_argument('--module-count',type=int,default=1,help='expected inventory size for the runtime control')
     parser.add_argument('--keys', default='', help='comma-separated native MCU key presses after boot')
@@ -156,18 +158,24 @@ def main():
     parser.add_argument('--prores-initial-choice',type=int,choices=range(5),default=0,help='expected restored ProRes choice on attachment')
     parser.add_argument('--h265-initial-tier',type=int,choices=range(5),default=0,help='expected restored tier at module attachment')
     parser.add_argument('--export-snor',action='store_true',help='save the modeled NOR image after acknowledged shutdown')
+    parser.add_argument('--raw-record-choice',type=int,choices=(0,1),help='record in native N-RAW after selecting Stock or R3D NE')
+    parser.add_argument('--raw-prepare',choices=('warm-first','direct'),default='warm-first',help='native RAW setup ordering, recorded in the command')
+    parser.add_argument('--raw-test',action='store_true',help='configure native N-RAW and exercise the R3D NE app and retirement')
     parser.add_argument('--h265-test',action='store_true',help='use the H.265 app and bitrate policy for the video selection control')
     parser.add_argument('--video-prepare',choices=('direct','legacy-half'),default='direct',help='recording control: switch directly to Movie, or reproduce the earlier still-half-press sequence')
     parser.add_argument('--video-record-choice',type=int,choices=range(5),help='video test: select one quality and observe native recording admission up to the expected strict codec-model stop')
     parser.add_argument('--expect', choices=('success', 'fault', 'rejected', 'sdk', 'services', 'runtime', 'ui', 'timeout', 'files', 'mapping', 'global'), default='success')
     args = parser.parse_args()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,20}",args.nvme_serial):parser.error("invalid virtual NVMe serial")
+    if args.raw_record_choice is not None and not args.raw_test:parser.error('--raw-record-choice requires --raw-test')
+    if args.raw_test and (not args.video_test or args.h265_test or args.video_menu_test or args.module_count!=1 or args.video_record_choice is not None):parser.error('--raw-test requires one raw app and excludes other video controls')
     if args.h265_test and (not args.video_test or args.video_record_choice is not None or args.module_count!=1):
         parser.error('--h265-test requires one module and the video selection control')
     if args.h265_after_stop_tier is not None and args.h265_record_tier is None:parser.error('--h265-after-stop-tier requires --h265-record-tier')
     if args.h265_record_tier is not None and (not args.h265_test or not args.video_menu_test or not args.video_properties):
         parser.error('--h265-record-tier requires H.265/native-menu controls and explicit --video-properties')
-    if args.dma_copy_zero_model and args.h265_record_tier is None:parser.error('--dma-copy-zero-model requires --h265-record-tier')
-    if args.video_properties and args.h265_record_tier is None:parser.error('--video-properties requires --h265-record-tier')
+    if args.dma_copy_zero_model and args.h265_record_tier is None and not args.raw_test:parser.error('--dma-copy-zero-model requires --h265-record-tier')
+    if args.video_properties and args.h265_record_tier is None and not args.raw_test:parser.error('--video-properties requires --h265-record-tier')
     if args.export_snor and not args.shutdown_test:parser.error('--export-snor requires --shutdown-test')
     if args.panic_test and (not args.native_menu_test or args.expect!='fault'):
         parser.error('--panic-test requires --native-menu-test --expect fault')
@@ -234,6 +242,7 @@ def main():
             'mcu-image=' + str(args.mcu.resolve(strict=True)), 'z9-capture=on', 'cfexpress=on',
             'z9-capture-raw=' + str(args.raw.resolve(strict=True)), 'sio-sink=9:8:7',
             'imu-mg=1000:0:0', 'scanout-dump=' + str(out / 'frame.ppm')])
+        if args.mode_dial:machine+=',mode-dial='+args.mode_dial
         if args.dma_copy_zero_model:machine+=',dma-copy-zero-model=on'
         if args.video_properties:
             properties=args.video_properties.read_text().strip().split(';')
@@ -241,7 +250,7 @@ def main():
                 raise ValueError('invalid functional model property list')
             machine+=',z9-capture-props='+';'.join(properties)
             (out/'video-model-properties.txt').write_text(';'.join(properties)+'\n')
-        if args.video_record_choice is not None or args.video_menu_test:
+        if args.video_record_choice is not None or args.video_menu_test or args.raw_test:
             # Video-format transitions and movie overlays contain separately unmodeled GFX commands. Keep
             # CODEC strict; this control qualifies request data, not drawing.
             machine+=',gfx-skip-unmodelled=on'
@@ -253,7 +262,7 @@ def main():
             '-smp', '4,maxcpus=5', '-bios', str(application), '-serial', 'file:' + str(out / 'serial.log'),
             '-monitor', 'none', '-display', 'none', '-nic', 'none', '-action', 'shutdown=pause',
             '-drive', 'file=' + str(out / 'card.img') + ',if=none,id=card,format=raw',
-            '-device', 'nvme,drive=card,serial=LOCALTEST,bus=dw-pcie,addr=0',
+            '-device', 'nvme,drive=card,serial='+args.nvme_serial+',bus=dw-pcie,addr=0',
             '-qmp', 'unix:' + str(sock) + ',server=on,wait=off',
             '-plugin', str(args.plugin.resolve(strict=True)) + ',out=' + str(out / 'calls.log') +
             ',call=' + ':'.join([*[hex(symbols[name]) for name in observed],
@@ -408,6 +417,95 @@ def main():
                 menu_exit_presses = 0
                 scanout_matches = None
                 menu_matches = None
+                if args.raw_test:
+                    if args.raw_prepare=='warm-first':
+                        keypress('lever=video');time.sleep(10)
+                        if not qmp('query-status').get('running'):raise RuntimeError('Model stopped during initial stock video preparation')
+                    for attempt in range(3):
+                        keypress('menu')
+                        for poll in range(10):
+                            if view()&65535==2:break
+                            time.sleep(.2)
+                        if view()&65535==2:break
+                    else:raise RuntimeError('RAW preparation menu did not open')
+                    touch('50:145')
+                    if view()>>16!=266:raise RuntimeError('RAW preparation Video tab absent')
+                    qmp('screendump',{'filename':str(out/'raw-video-tab.ppm')})
+                    pixels=(out/'raw-video-tab.ppm').read_bytes()
+                    header=re.match(rb'P6\s+(\d+)\s+(\d+)\s+255\s',pixels)
+                    if not header or tuple(map(int,header.groups()))!=(1024,682):raise RuntimeError('RAW menu raster geometry')
+                    rgb=pixels[header.end():];yellow=0
+                    for y in range(100,640,8):
+                        for x in range(120,900,8):
+                            at=3*(1024*y+x);red,green,blue=rgb[at:at+3]
+                            yellow+=red>200 and green>150 and blue<80
+                    if yellow<20:keypress('right')
+                    root=0xa02908f10;descriptor=read64(root+80);rows=read64(descriptor+16)
+                    for _ in range(48):
+                        index=((read64(root+48)>>16)&65535)+(read64(root+88)&65535)
+                        if index>=45:raise RuntimeError('RAW preparation row bounds')
+                        row=read64(rows+44*index+24)&0xffffffff
+                        if row in (12394,12728):break
+                        keypress('down' if index<6 else 'up')
+                    else:raise RuntimeError('RAW preparation File type row absent')
+                    keypress('right')
+                    if view()>>16!=278:raise RuntimeError('RAW preparation File type page absent')
+                    current=read64(0xa03f0eee0)&0xffffffff
+                    if not 1<=current<=6:raise RuntimeError('RAW preparation file type invalid')
+                    for _ in range(6-current):keypress('up')
+                    keypress('ok')
+                    if view()>>16==278:keypress('ok')
+                    if view()>>16!=266 or read64(0xa03f0eee0)&0xffffffff!=6:raise RuntimeError('Native N-RAW selection failed')
+                    # Pin the same 6K/29.97 request used by the standalone
+                    # functional control, instead of inheriting a latent 60p mode.
+                    for _ in range(45):
+                        index=((read64(root+48)>>16)&65535)+(read64(root+88)&65535)
+                        if index>=45:raise RuntimeError('RAW frame-size parent bounds')
+                        if read64(rows+44*index+24)&0xffffffff==0x2ee5:break
+                        keypress('down' if index<8 else 'up')
+                    else:raise RuntimeError('RAW frame-size row absent')
+                    keypress('right')
+                    for _ in range(128):
+                        view();leaf=int(json.loads((out/'native-views.jsonl').read_text().splitlines()[-1])['chain'][-1],16)
+                        desc=read64(leaf+80);count=read64(desc+32)&65535;items=read64(desc+16)
+                        index=((read64(leaf+48)>>16)&65535)+(read64(leaf+88)&65535)
+                        if not 1<=count<=128 or index>=count:raise RuntimeError('RAW mode list bounds')
+                        ids=[read64(items+i*44+24)&0xffffffff for i in range(count)]
+                        if 0x3203 not in ids:raise RuntimeError('6K/30 N-RAW row absent')
+                        if ids[index]==0x3203:break
+                        keypress('down' if ids.index(0x3203)>index else 'up')
+                    else:raise RuntimeError('6K/30 N-RAW row unreachable')
+                    keypress('ok')
+                    selected=read64(0xa03f0f110)
+                    if (selected&0xffffffff,selected>>32)!=(6,6):raise RuntimeError('N-RAW size/rate readback differs')
+                    (out/'raw-preparation.json').write_text(json.dumps(dict(file_type=6,size=6,rate=6,native_inputs_only=True))+'\n')
+                    if args.raw_record_choice is not None:
+                        for _ in range(45):
+                            index=((read64(root+48)>>16)&65535)+(read64(root+88)&65535)
+                            if index>=45:raise RuntimeError('RAW microphone parent bounds')
+                            if read64(rows+44*index+24)&0xffffffff==0x2ee6:break
+                            keypress('down')
+                        else:raise RuntimeError('RAW microphone row absent')
+                        keypress('right')
+                        for _ in range(16):
+                            view();leaf=int(json.loads((out/'native-views.jsonl').read_text().splitlines()[-1])['chain'][-1],16)
+                            desc=read64(leaf+80);items=read64(desc+16);count=read64(desc+32)&65535
+                            index=((read64(leaf+48)>>16)&65535)+(read64(leaf+88)&65535)
+                            if not 1<=count<=16 or index>=count:raise RuntimeError('RAW microphone options bounds')
+                            if read64(items+44*index+24)&0xffffffff==0x2eea:break
+                            keypress('down')
+                        else:raise RuntimeError('RAW Microphone off option absent')
+                        keypress('ok')
+                        if read64(0xa03f0ef80)&0xffffffff:raise RuntimeError('RAW Microphone off not applied')
+                    keypress('half');keypress('lever=video');time.sleep(10)
+                    if not qmp('query-status').get('running'):
+                        diagnostic={}
+                        for property_name in ('engine1543-control-state','video-raw-transport-state','raw-pipeline-state'):
+                            try:diagnostic[property_name]=qmp('qom-get',{'path':'/machine/z9lab','property':property_name})
+                            except RuntimeError as error:diagnostic[property_name]=str(error)
+                        (out/'raw-preparation-model-stop.json').write_text(json.dumps(diagnostic,indent=2)+'\n')
+                        raise RuntimeError('Model stopped during native N-RAW preparation')
+                    qmp('screendump',{'filename':str(out/'before-menu.ppm')})
                 if args.native_menu_test:
                     if not receipt.get('menu') or args.keys:
                         raise ValueError('native menu test requires a menu image and no --keys')
@@ -557,13 +655,18 @@ def main():
                                 def u32(at):return (read64((policy+at)&~7)>>(((policy+at)&7)*8))&0xffffffff
                                 return dict(effective=u32(meta[4]),requested=u32(meta[5]),registered=u32(meta[6]),
                                     movie=u32(meta[7]),capture=u32(meta[7]+4),fault=u32(meta[8]))
+                            if args.raw_test:
+                                raw_layout=struct.unpack_from('<3I',image,symbols['fx_z63_raw_layout']-base)
+                                if raw_layout[:2]!=(0x46585251,1):raise RuntimeError('RAW layout differs')
+                                policy_offset=raw_layout[2]
                             initial=video_state()
-                            expected_initial=args.h265_initial_tier if args.h265_test else args.prores_initial_choice
+                            expected_initial=0 if args.raw_test else args.h265_initial_tier if args.h265_test else args.prores_initial_choice
                             if initial['effective']!=expected_initial or initial['requested']!=expected_initial or initial['fault']:
                                 raise RuntimeError('Video module did not begin at Stock')
                             selections=[];cursor=initial['requested']
                             choices=((1,2,3,4,0,4) if args.shutdown_test else (1,2,3,4,0)) if args.video_record_choice is None else (args.video_record_choice,)
                             if args.h265_record_tier is not None:choices=(0,args.h265_record_tier) if args.h265_record_tier else (1,0)
+                            if args.raw_test:choices=(1,0,1) if args.raw_record_choice!=0 else (0,)
                             for selected in choices:
                                 for attempt in range(3):
                                     keypress('ok');time.sleep(1)
@@ -589,7 +692,7 @@ def main():
                                 else:raise RuntimeError('Video quality not published: '+repr(state))
                                 cursor=selected;selections.append(state)
                                 qmp('screendump',{'filename':str(out/('video-choice-'+str(selected)+'.ppm'))})
-                            video_result=dict(family='h265' if args.h265_test else 'prores422',
+                            video_result=dict(family='raw' if args.raw_test else 'h265' if args.h265_test else 'prores422',
                                 initial=initial,selections=selections,stock_restored=0 in choices,passed=True)
                             (out/'video-quality.json').write_text(json.dumps(video_result,indent=2)+'\n')
                         if args.demo_test:
@@ -719,6 +822,41 @@ def main():
                     if (scanout_matches < .90 and args.expect!='global' and not args.panic_test) or menu_matches >= .50:
                         raise RuntimeError('live-view scanout control did not distinguish menu/return')
                     menu_completed = True
+                    if args.raw_record_choice is not None:
+                        raw_record=dict(choice=args.raw_record_choice,activity=[],microphone_off=True,
+                            physical_camera_tested=False,completed_file_audit=False)
+                        def raw_sample(label):
+                            values={name:(read64(address&~7)>>((address&7)*8))&0xffffffff for name,address in (
+                                ('movie',0xa03324ce0),('outstanding',0xa03324dc8),('capture',0xa048bb044),
+                                ('pipeline',0xa03d42100),('class',0xa03d42108))}
+                            values['native_idle']=not any(values[n] for n in ('movie','outstanding','capture')) and (
+                                (values['pipeline']==2 and values['class']!=12) or (values['pipeline']==0 and values['class']==0))
+                            raw_record['activity'].append(dict(label=label,**values))
+                            (out/'raw-recording.json').write_text(json.dumps(raw_record,indent=2)+'\n')
+                            return values
+                        def raw_model():return json.loads(qmp('qom-get',{'path':'/machine/z9lab','property':'raw-pipeline-state'}))
+                        keypress('half');time.sleep(3)
+                        before_raw=raw_model();time.sleep(1);after_raw=raw_model()
+                        frames=[before_raw['frames'],after_raw['frames']]
+                        raw_record['live_view_before_record']=frames
+                        raw_record['before_record_models']={'before':before_raw,'after':after_raw,
+                            'header':qmp('qom-get',{'path':'/machine/z9lab','property':'engine1543-control-state'})}
+                        (out/'raw-recording.json').write_text(json.dumps(raw_record,indent=2)+'\n')
+                        if frames[1]<frames[0]+10:raise RuntimeError('RAW model live view stalled before REC')
+                        keypress('movie');time.sleep(8)
+                        started=raw_sample('started')
+                        if not any(started[n] for n in ('movie','outstanding','capture')):raise RuntimeError('RAW recording did not start')
+                        qmp('screendump',{'filename':str(out/'raw-recording.ppm')})
+                        keypress('movie');time.sleep(5);deadline=time.monotonic()+90
+                        while not raw_sample('stop-drain')['native_idle']:
+                            if not qmp('query-status').get('running'):raise RuntimeError('Model stopped during RAW drain')
+                            if time.monotonic()>deadline:raise RuntimeError('RAW Stop did not retire')
+                            time.sleep(3)
+                        raw_record['native_stop_retired']=True
+                        raw_record['raw_transport']=qmp('qom-get',{'path':'/machine/z9lab','property':'video-raw-transport-state'})
+                        (out/'raw-recording.json').write_text(json.dumps(raw_record,indent=2)+'\n')
+                        video_result['raw_recording']=raw_record
+                        (out/'video-quality.json').write_text(json.dumps(video_result,indent=2)+'\n')
                     if args.video_menu_test:
                         def read_bytes(address,count):
                             output=qmp('human-monitor-command',{'command-line':'xp /'+str(count)+'bx '+hex(address)})
